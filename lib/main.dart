@@ -9,9 +9,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:intl/intl.dart'; // 需要在 pubspec.yaml 加入 intl: ^0.18.0
 
 // ---------------------------------------------------------------------------
-// 1. Firebase 設定 (已填入你的資料)
+// 1. Firebase 設定
 // ---------------------------------------------------------------------------
 const firebaseOptions = FirebaseOptions(
   apiKey: "AIzaSyBB6wqntt9gzoC1qHonWkSwH2NS4I9-TLY",
@@ -23,7 +24,7 @@ const firebaseOptions = FirebaseOptions(
 );
 
 // ---------------------------------------------------------------------------
-// 2. 天氣 API Key (已填入你的資料)
+// 2. 天氣 API Key
 // ---------------------------------------------------------------------------
 const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc";
 
@@ -97,196 +98,8 @@ class Activity {
 }
 
 // ---------------------------------------------------------------------------
-// ★★★ 救援用：備份資料 (用於一鍵還原) ★★★
+// 主程式 UI Setup
 // ---------------------------------------------------------------------------
-final List<Activity> _backupData = [
-  // Day 1
-  Activity(
-    id: '',
-    dayIndex: 0,
-    time: '07:25',
-    title: '桃園機場集合',
-    location: '第二航廈',
-    notes: '星宇航空櫃檯',
-    type: ActivityType.transport,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 0,
-    time: '11:50',
-    title: '搭機前往仙台',
-    location: 'JX862',
-    type: ActivityType.transport,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 0,
-    time: '16:00',
-    title: '抵達仙台機場',
-    location: '仙台空港',
-    type: ActivityType.transport,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 0,
-    time: '18:00',
-    title: '仙台市區逛街',
-    location: '一番町',
-    notes: '晚餐自理，推薦牛舌',
-    type: ActivityType.shop,
-    cost: 5000,
-  ),
-  // Day 2
-  Activity(
-    id: '',
-    dayIndex: 1,
-    time: '09:00',
-    title: '藏王樹冰纜車',
-    location: '藏王山麓站',
-    notes: '冬季限定 ICE MONSTER',
-    cost: 3000,
-    type: ActivityType.sight,
-    imageUrls: [
-      'https://images.unsplash.com/photo-1548263594-a71ea65a85b8?q=80',
-    ],
-  ),
-  Activity(
-    id: '',
-    dayIndex: 1,
-    time: '13:00',
-    title: '銀山溫泉散策',
-    location: '銀山溫泉',
-    notes: '神隱少女場景',
-    type: ActivityType.sight,
-    imageUrls: [
-      'https://images.unsplash.com/photo-1533052445851-913437142b78?q=80',
-    ],
-  ),
-  Activity(
-    id: '',
-    dayIndex: 1,
-    time: '18:00',
-    title: '飯店會席料理',
-    location: '天童溫泉',
-    type: ActivityType.food,
-  ),
-  // Day 3
-  Activity(
-    id: '',
-    dayIndex: 2,
-    time: '09:30',
-    title: '飯豊雪上樂園',
-    location: '飯豊',
-    notes: '無限暢玩雪上摩托車',
-    type: ActivityType.sight,
-    imageUrls: [
-      'https://images.unsplash.com/photo-1551524559-8af4e6624178?q=80',
-    ],
-  ),
-  Activity(
-    id: '',
-    dayIndex: 2,
-    time: '14:00',
-    title: '南陽熊野大社',
-    location: '熊野大社',
-    notes: '尋找三隻兔子',
-    type: ActivityType.sight,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 2,
-    time: '16:00',
-    title: '大和川酒造',
-    location: '喜多方',
-    notes: '試飲日本酒',
-    type: ActivityType.shop,
-  ),
-  // Day 4
-  Activity(
-    id: '',
-    dayIndex: 3,
-    time: '10:00',
-    title: '大內宿',
-    location: '大內宿',
-    notes: '日本三大茅葺屋聚落',
-    type: ActivityType.sight,
-    imageUrls: [
-      'https://images.unsplash.com/photo-1533423376241-750f6820464f?q=80',
-    ],
-  ),
-  Activity(
-    id: '',
-    dayIndex: 3,
-    time: '13:00',
-    title: '會津鐵道體驗',
-    location: '湯野上溫泉',
-    notes: '茅草屋車站',
-    type: ActivityType.transport,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 3,
-    time: '14:00',
-    title: '蘆之牧溫泉站',
-    location: '蘆之牧溫泉',
-    notes: '拜訪貓咪站長',
-    type: ActivityType.sight,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 3,
-    time: '16:00',
-    title: '會津若松城',
-    location: '鶴城',
-    type: ActivityType.sight,
-  ),
-  // Day 5
-  Activity(
-    id: '',
-    dayIndex: 4,
-    time: '09:00',
-    title: '松島遊船',
-    location: '松島海岸',
-    notes: '日本三景',
-    cost: 1500,
-    type: ActivityType.sight,
-    imageUrls: [
-      'https://images.unsplash.com/photo-1572535780442-8354c553835c?q=80',
-    ],
-  ),
-  Activity(
-    id: '',
-    dayIndex: 4,
-    time: '10:30',
-    title: '五大堂',
-    location: '五大堂',
-    notes: '走結緣橋',
-    type: ActivityType.sight,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 4,
-    time: '13:00',
-    title: 'AEON MALL 購物',
-    location: '名取 AEON',
-    notes: '最後衝刺',
-    type: ActivityType.shop,
-    cost: 20000,
-  ),
-  Activity(
-    id: '',
-    dayIndex: 4,
-    time: '15:30',
-    title: '前往機場',
-    location: '仙台空港',
-    type: ActivityType.transport,
-  ),
-];
-
-// ---------------------------------------------------------------------------
-// 主程式 UI
-// ---------------------------------------------------------------------------
-
 class TohokuTripApp extends StatelessWidget {
   const TohokuTripApp({super.key});
 
@@ -298,15 +111,17 @@ class TohokuTripApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '仙台星宇絕美旅程',
+      title: 'STARLUX Journey',
       debugShowCheckedModeBanner: false,
       navigatorObservers: [observer],
       theme: ThemeData(
-        primaryColor: const Color(0xFF8B2E2E),
-        scaffoldBackgroundColor: const Color(0xFFF9F8F4),
+        // 星宇風格配色：大地金、深灰、米白
+        primaryColor: const Color(0xFF9E8B6E),
+        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF8B2E2E),
-          surface: const Color(0xFFF9F8F4),
+          seedColor: const Color(0xFF9E8B6E),
+          surface: const Color(0xFFF5F5F5),
+          primary: const Color(0xFF9E8B6E),
         ),
         useMaterial3: true,
         fontFamily: 'Roboto',
@@ -324,7 +139,11 @@ class ElegantItineraryPage extends StatefulWidget {
 }
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
+  // PageController 用於翻頁控制
+  final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
+
+  // 背景圖
   final String _bgImage =
       'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80';
 
@@ -333,20 +152,17 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   final String _city = "Sendai";
   String _weatherTemp = "--°";
-  String _weatherCond = "載入中...";
-  IconData _weatherIcon = Icons.cloud_download;
+  String _weatherCond = "Loading";
+  IconData _weatherIcon = Icons.cloud;
 
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
-
-  late Stream<QuerySnapshot> _currentStream;
 
   @override
   void initState() {
     super.initState();
     _updateTime();
     _fetchRealWeather();
-    _updateStream();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTime();
@@ -354,15 +170,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     });
   }
 
-  void _updateStream() {
-    _currentStream = _activitiesRef
-        .where('dayIndex', isEqualTo: _selectedDayIndex)
-        .snapshots();
-  }
-
   @override
   void dispose() {
     _timer?.cancel();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -430,137 +241,29 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
-  // ★★★ 救援功能：上傳備份資料到雲端 ★★★
-  Future<void> _rescueData() async {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('正在救援行程資料...')));
-
-    // 再次檢查是否真的沒資料 (雙重保險)
-    var snapshot = await _activitiesRef.limit(1).get();
-    if (snapshot.docs.isNotEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('雲端已有資料，取消救援以免重複！')));
-      return;
-    }
-
-    // 開始批次寫入
-    WriteBatch batch = FirebaseFirestore.instance.batch();
-    for (var item in _backupData) {
-      var docRef = _activitiesRef.doc(); // 自動產生 ID
-      batch.set(docRef, item.toMap());
-    }
-    await batch.commit(); // 一次提交所有變更
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('成功！行程已全部恢復！')));
-  }
-
-  Widget _buildTotalCostDisplay() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _activitiesRef.snapshots(),
-      builder: (context, snapshot) {
-        double total = 0;
-        double daily = 0;
-        if (snapshot.hasData) {
-          for (var doc in snapshot.data!.docs) {
-            var data = doc.data() as Map<String, dynamic>;
-            double cost = (data['cost'] ?? 0).toDouble();
-            total += cost;
-            if (data['dayIndex'] == _selectedDayIndex) {
-              daily += cost;
-            }
-          }
-        }
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'TOTAL EXPENSE (ALL DAYS)',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 1.5,
-                    color: Colors.grey,
-                  ),
-                ),
-                Text(
-                  '¥ ${total.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontFamily: 'Serif',
-                    color: Color(0xFF8B2E2E),
-                  ),
-                ),
-              ],
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const Text(
-                  'TODAY',
-                  style: TextStyle(
-                    fontSize: 10,
-                    letterSpacing: 1.5,
-                    color: Colors.grey,
-                  ),
-                ),
-                Text(
-                  '¥ ${daily.toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontFamily: 'Serif',
-                    color: Colors.black87,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _navigateToDetail(Activity activity, bool isNew) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ActivityDetailPage(
-          activity: activity,
-          onSave: (updatedActivity) async {
-            if (isNew) {
-              await _activitiesRef.add(updatedActivity.toMap());
-            } else {
-              await _activitiesRef
-                  .doc(updatedActivity.id)
-                  .update(updatedActivity.toMap());
-            }
-          },
-          onDelete: isNew
-              ? null
-              : () async {
-                  await _activitiesRef.doc(activity.id).delete();
-                },
-        ),
-      ),
-    );
-  }
-
-  void _addNewActivity(int dayIndex) {
+  void _addNewActivity() {
     Activity newActivity = Activity(
       id: '',
       time: '00:00',
       title: '新行程',
       type: ActivityType.sight,
-      dayIndex: dayIndex,
+      dayIndex: _selectedDayIndex,
     );
-    _navigateToDetail(newActivity, true);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ActivityDetailPage(
+          activity: newActivity,
+          onSave: (updatedActivity) async {
+            await _activitiesRef.add(updatedActivity.toMap());
+          },
+          onDelete: null,
+        ),
+      ),
+    );
   }
 
+  // --- 工具按鈕處理 ---
   void _handleToolTap(String label) {
     Widget page;
     switch (label) {
@@ -576,6 +279,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       case '地圖':
         page = const MapListPage();
         break;
+      case '匯率':
+        _showCurrencyDialog();
+        return; // 彈窗不跳頁
+      case '分帳':
+        _showSplitBillDialog();
+        return; // 彈窗不跳頁
       default:
         return;
     }
@@ -592,24 +301,28 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('匯率換算'),
+              title: const Text('即時匯率試算'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: '日幣 (JPY)'),
+                    decoration: const InputDecoration(
+                      labelText: '日幣 (JPY)',
+                      suffixText: '円',
+                    ),
                     onChanged: (v) => setState(() {
                       jpy = double.tryParse(v) ?? 0;
                       twd = jpy * rate;
                     }),
                   ),
+                  const SizedBox(height: 10),
                   Text(
                     '約 NT\$ ${twd.toStringAsFixed(0)}',
                     style: const TextStyle(
-                      fontSize: 24,
+                      fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: Colors.orange,
+                      color: Color(0xFF9E8B6E),
                     ),
                   ),
                 ],
@@ -628,25 +341,282 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
+  // --- Widget 構建 ---
+
+  // 星宇風格機票卡片
+  Widget _buildBoardingPass() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // 上半部：飛行資訊
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'TPE',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    Text(
+                      'Taoyuan',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+                const Icon(
+                  Icons.flight_takeoff,
+                  color: Color(0xFF9E8B6E),
+                  size: 28,
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text(
+                      'SDJ',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    Text(
+                      'Sendai',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // 虛線分隔
+          Row(
+            children: List.generate(
+              30,
+              (index) => Expanded(
+                child: Container(
+                  color: index % 2 == 0 ? Colors.transparent : Colors.grey[300],
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+          // 下半部：詳細資訊
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 12.0,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildTicketInfo('FLIGHT', 'JX862'),
+                _buildTicketInfo('DATE', '16 JAN'),
+                _buildTicketInfo('TIME', '11:50'),
+                _buildTicketInfo('GATE', 'A5'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTicketInfo(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            color: Colors.grey,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2C2C2C),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // 底部工具箱與總花費
+  Widget _buildToolsSection() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 8, bottom: 12),
+            child: Text(
+              'TRAVEL TOOLS',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.5,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 100, // 固定高度
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                // 第一張卡片：總花費
+                _buildTotalCostCard(),
+                const SizedBox(width: 12),
+                // 工具按鈕
+                _buildToolIcon(Icons.shopping_bag, '必買', Colors.pink),
+                _buildToolIcon(Icons.translate, '翻譯', Colors.purple),
+                _buildToolIcon(Icons.map, '地圖', Colors.green),
+                _buildToolIcon(Icons.luggage, '行李', Colors.blue),
+                _buildToolIcon(Icons.currency_exchange, '匯率', Colors.orange),
+                _buildToolIcon(Icons.diversity_3, '分帳', Colors.teal),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTotalCostCard() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _activitiesRef.snapshots(),
+      builder: (context, snapshot) {
+        double total = 0;
+        if (snapshot.hasData) {
+          for (var doc in snapshot.data!.docs) {
+            var data = doc.data() as Map<String, dynamic>;
+            total += (data['cost'] ?? 0).toDouble();
+          }
+        }
+        return Container(
+          width: 160,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF2C2C2C), Color(0xFF4A4A4A)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'TOTAL SPENT',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 10,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '¥${NumberFormat('#,###').format(total)}',
+                style: const TextStyle(
+                  color: Color(0xFFD4C5A9),
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildToolIcon(IconData icon, String label, Color color) {
+    return GestureDetector(
+      onTap: () => _handleToolTap(label),
+      child: Container(
+        width: 70,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // 背景
+          // 背景圖層
           Positioned(
             top: 0,
             left: 0,
             right: 0,
-            height: 350,
+            height: 400,
             child: Stack(
               fit: StackFit.expand,
               children: [
                 Image.network(
                   _bgImage,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      Container(color: Colors.grey),
+                  errorBuilder: (c, e, s) => Container(color: Colors.grey),
                 ),
                 Container(
                   decoration: BoxDecoration(
@@ -654,11 +624,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black12,
+                        Colors.black26,
                         Colors.white.withOpacity(0.1),
-                        const Color(0xFFF9F8F4),
+                        const Color(0xFFF5F5F5),
                       ],
-                      stops: const [0.0, 0.6, 1.0],
+                      stops: const [0.0, 0.5, 1.0],
                     ),
                   ),
                 ),
@@ -667,9 +637,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           ),
 
           SafeArea(
+            bottom: false,
             child: Column(
               children: [
-                // 1. 資訊區
+                // 1. 頂部狀態列
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24.0,
@@ -677,214 +648,87 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            '2026.01.16 - 01.20',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              shadows: [
-                                Shadow(color: Colors.black54, blurRadius: 5),
-                              ],
-                            ),
-                          ),
                           Text(
                             _currentTime,
                             style: const TextStyle(
-                              fontFamily: 'Serif',
-                              fontSize: 60,
-                              height: 1.0,
-                              color: Color(0xFF8B2E2E),
-                              fontWeight: FontWeight.w400,
+                              fontSize: 40,
+                              fontWeight: FontWeight.w300,
+                              color: Colors.white,
+                              height: 1,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          const Row(
-                            children: [
-                              Text(
-                                '桃園',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 8),
-                                child: Icon(Icons.flight_takeoff, size: 20),
-                              ),
-                              Text(
-                                '仙台',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.location_on,
-                                size: 14,
-                                color: Colors.grey,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Miyagi, Japan',
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            ],
+                          const Text(
+                            '2026.01.16 - 01.20',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
                       ),
-                      GestureDetector(
-                        onTap: () {
-                          _fetchRealWeather();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('更新天氣...'),
-                              duration: Duration(seconds: 1),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Icon(_weatherIcon, color: Colors.white, size: 30),
+                          Text(
+                            '$_weatherTemp $_weatherCond',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
                             ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.95),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(_weatherIcon, color: Colors.amber, size: 32),
-                              Text(
-                                _weatherTemp,
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                _weatherCond,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
                 ),
 
-                // 2. 工具列 (匯入按鈕已刪除，但我們留一個入口給救援)
-                SizedBox(
-                  height: 90,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    children: [
-                      _buildToolItem(
-                        Icons.luggage,
-                        '行李',
-                        Colors.blue,
-                        onTap: () => _handleToolTap('行李'),
-                      ),
-                      _buildToolItem(
-                        Icons.shopping_bag,
-                        '必買',
-                        Colors.pink,
-                        onTap: () => _handleToolTap('必買'),
-                      ),
-                      _buildToolItem(
-                        Icons.translate,
-                        '翻譯',
-                        Colors.purple,
-                        onTap: () => _handleToolTap('翻譯'),
-                      ),
-                      _buildToolItem(
-                        Icons.map,
-                        '地圖',
-                        Colors.green,
-                        onTap: () => _handleToolTap('地圖'),
-                      ),
-                      _buildToolItem(
-                        Icons.currency_exchange,
-                        '匯率',
-                        Colors.orange,
-                        onTap: _showCurrencyDialog,
-                      ),
-                      _buildToolItem(
-                        Icons.diversity_3,
-                        '分帳',
-                        Colors.teal,
-                        onTap: _showSplitBillDialog,
-                      ),
-                    ],
-                  ),
-                ),
+                // 2. 機票卡片 (裝飾用)
+                _buildBoardingPass(),
 
-                const SizedBox(height: 10),
-
-                // 3. 日期選擇器
+                // 3. 天數切換指示器
                 SizedBox(
-                  height: 60,
+                  height: 40,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: 5,
                     itemBuilder: (context, index) {
                       bool isSelected = _selectedDayIndex == index;
                       return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedDayIndex = index;
-                            _updateStream();
-                          });
-                        },
-                        child: Container(
-                          width: 70,
+                        onTap: () => _pageController.animateToPage(
+                          index,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        ),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
                           margin: const EdgeInsets.only(right: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF8B2E2E)
+                                ? const Color(0xFF9E8B6E)
                                 : Colors.white,
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isSelected
+                                  ? Colors.transparent
+                                  : Colors.grey.shade300,
+                            ),
                           ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Day ${index + 1}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isSelected
-                                      ? Colors.white70
-                                      : Colors.grey,
-                                ),
-                              ),
-                              Text(
-                                '1/${16 + index}',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.black87,
-                                  fontFamily: 'Serif',
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            'Day ${index + 1}',
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : Colors.grey,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       );
@@ -894,300 +738,225 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
                 const SizedBox(height: 10),
 
-                // 4. 行程列表
+                // 4. 翻頁式行程列表 (PageView)
                 Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: _currentStream,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError)
-                        return Center(child: Text('錯誤: ${snapshot.error}'));
-                      if (!snapshot.hasData) return const SizedBox();
-
-                      List<Activity> activities = snapshot.data!.docs
-                          .map((doc) => Activity.fromFirestore(doc))
-                          .toList();
-                      activities.sort((a, b) => a.time.compareTo(b.time));
-
-                      if (activities.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            '點擊右下角 + 新增行程',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        );
-                      }
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
-                        itemCount: activities.length,
-                        itemBuilder: (context, index) {
-                          final activity = activities[index];
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 0),
-                            child: IntrinsicHeight(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  SizedBox(
-                                    width: 60,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const SizedBox(height: 18),
-                                        Text(
-                                          activity.time,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                            fontFamily: 'Serif',
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Container(
-                                            margin: const EdgeInsets.only(
-                                              left: 15,
-                                              top: 8,
-                                              bottom: 8,
-                                            ),
-                                            width: 1,
-                                            color: Colors.grey.shade300,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: () =>
-                                          _navigateToDetail(activity, false),
-                                      child: Container(
-                                        margin: const EdgeInsets.only(
-                                          bottom: 16,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(
-                                                0.05,
-                                              ),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                          border: const Border(
-                                            left: BorderSide(
-                                              color: Color(0xFF8B2E2E),
-                                              width: 4,
-                                            ),
-                                          ),
-                                        ),
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(16.0),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  _buildTag(activity.type),
-                                                  if (activity.cost > 0)
-                                                    Text(
-                                                      '¥${activity.cost.toInt()}',
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF8B2E2E,
-                                                        ),
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                activity.title,
-                                                style: const TextStyle(
-                                                  fontSize: 18,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                              if (activity
-                                                  .location
-                                                  .isNotEmpty) ...[
-                                                const SizedBox(height: 8),
-                                                const Divider(
-                                                  height: 1,
-                                                  color: Color(0xFFEEEEEE),
-                                                ),
-                                                const SizedBox(height: 8),
-                                                Row(
-                                                  children: [
-                                                    const Icon(
-                                                      Icons.location_on,
-                                                      size: 14,
-                                                      color: Colors.grey,
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      activity.location,
-                                                      style: const TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors.grey,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: 5,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _selectedDayIndex = index;
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      return DayItineraryWidget(
+                        dayIndex: index,
+                        onAddPressed: _addNewActivity,
                       );
                     },
                   ),
                 ),
-              ],
-            ),
-          ),
 
-          // 浮動新增按鈕 (正常用)
-          Positioned(
-            right: 20,
-            bottom: 90,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ★★★ 救援按鈕 (紅色雲端) - 按這裡一次就會救回資料 ★★★
-                // 等你救回資料後，下次更新再把它刪掉即可
-                FloatingActionButton.small(
-                  heroTag: 'rescue',
-                  onPressed: _rescueData,
-                  backgroundColor: Colors.red,
-                  child: const Icon(Icons.cloud_upload, color: Colors.white),
-                ),
-                const SizedBox(height: 16),
-                FloatingActionButton(
-                  heroTag: 'add',
-                  onPressed: () => _addNewActivity(_selectedDayIndex),
-                  backgroundColor: const Color(0xFF8B2E2E),
-                  shape: const CircleBorder(),
-                  child: const Icon(Icons.add, color: Colors.white, size: 30),
-                ),
+                // 5. 底部工具區 (包含總花費)
+                _buildToolsSection(),
               ],
-            ),
-          ),
-
-          // 底部總花費
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: Color(0xFFD4C5A9))),
-              ),
-              child: _buildTotalCostDisplay(),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildToolItem(
-    IconData icon,
-    String label,
-    Color color, {
-    VoidCallback? onTap,
-  }) {
+// ---------------------------------------------------------------------------
+// 獨立出來的單日行程 Widget (解決閃爍問題)
+// ---------------------------------------------------------------------------
+class DayItineraryWidget extends StatelessWidget {
+  final int dayIndex;
+  final VoidCallback onAddPressed;
+
+  const DayItineraryWidget({
+    super.key,
+    required this.dayIndex,
+    required this.onAddPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('activities')
+              .where('dayIndex', isEqualTo: dayIndex)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) return const Center(child: Text('Error'));
+            if (!snapshot.hasData)
+              return const Center(child: CircularProgressIndicator());
+
+            List<Activity> activities = snapshot.data!.docs
+                .map((doc) => Activity.fromFirestore(doc))
+                .toList();
+            activities.sort((a, b) => a.time.compareTo(b.time));
+
+            if (activities.isEmpty) {
+              return const Center(
+                child: Text('尚無行程', style: TextStyle(color: Colors.grey)),
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+              itemCount: activities.length,
+              itemBuilder: (context, index) {
+                final activity = activities[index];
+                return _buildActivityCard(context, activity);
+              },
+            );
+          },
+        ),
+        // 懸浮新增按鈕 (跟隨頁面)
+        Positioned(
+          right: 20,
+          bottom: 20,
+          child: FloatingActionButton(
+            onPressed: onAddPressed,
+            backgroundColor: const Color(0xFF9E8B6E),
+            shape: const CircleBorder(),
+            child: const Icon(Icons.add, color: Colors.white),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActivityCard(BuildContext context, Activity activity) {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(right: 16),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 5,
-                  ),
-                ],
-              ),
-              child: Icon(icon, color: color, size: 24),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ActivityDetailPage(
+              activity: activity,
+              onSave: (updated) => FirebaseFirestore.instance
+                  .collection('activities')
+                  .doc(updated.id)
+                  .update(updated.toMap()),
+              onDelete: () => FirebaseFirestore.instance
+                  .collection('activities')
+                  .doc(activity.id)
+                  .delete(),
             ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: Colors.black54,
-              ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              Container(
+                width: 6,
+                decoration: BoxDecoration(
+                  color: _getTypeColor(activity.type),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomLeft: Radius.circular(12),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            activity.time,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Color(0xFF9E8B6E),
+                            ),
+                          ),
+                          if (activity.cost > 0)
+                            Text(
+                              '¥${activity.cost.toInt()}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        activity.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (activity.location.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.location_on,
+                                size: 14,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                activity.location,
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTag(ActivityType type) {
-    String text = '';
-    Color color = Colors.grey;
+  Color _getTypeColor(ActivityType type) {
     switch (type) {
       case ActivityType.sight:
-        text = '景點';
-        color = Colors.teal;
-        break;
+        return Colors.teal;
       case ActivityType.food:
-        text = '美食';
-        color = Colors.orange;
-        break;
+        return Colors.orange;
       case ActivityType.shop:
-        text = '購物';
-        color = Colors.pink;
-        break;
+        return Colors.pink;
       case ActivityType.transport:
-        text = '交通';
-        color = Colors.blueGrey;
-        break;
+        return Colors.blueGrey;
       case ActivityType.other:
-        text = '彈性';
-        color = Colors.purple;
-        break;
+        return Colors.purple;
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: Colors.white, fontSize: 10),
-      ),
-    );
   }
 }
 
@@ -1244,40 +1013,19 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('行程詳細'),
-        backgroundColor: const Color(0xFF8B2E2E),
+        title: const Text('行程編輯'),
+        backgroundColor: const Color(0xFF9E8B6E),
         foregroundColor: Colors.white,
         actions: [
           if (widget.onDelete != null)
             IconButton(
               icon: const Icon(Icons.delete),
               onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (c) => AlertDialog(
-                    title: const Text('確定刪除?'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(c),
-                        child: const Text('取消'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          widget.onDelete!();
-                          Navigator.pop(c);
-                          Navigator.pop(context);
-                        },
-                        child: const Text(
-                          '刪除',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
+                widget.onDelete!();
+                Navigator.pop(context);
               },
             ),
-          IconButton(onPressed: _save, icon: const Icon(Icons.check)),
+          IconButton(icon: const Icon(Icons.check), onPressed: _save),
         ],
       ),
       body: SingleChildScrollView(
@@ -1290,31 +1038,21 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                   width: 80,
                   child: TextField(
                     controller: _timeC,
-                    decoration: const InputDecoration(
-                      labelText: '時間',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: '時間'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: TextField(
                     controller: _titleC,
-                    decoration: const InputDecoration(
-                      labelText: '標題',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: '標題'),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            DropdownButtonFormField<ActivityType>(
+            DropdownButtonFormField(
               value: _type,
-              decoration: const InputDecoration(
-                labelText: '類別',
-                border: OutlineInputBorder(),
-              ),
               items: ActivityType.values
                   .map(
                     (t) => DropdownMenuItem(
@@ -1331,7 +1069,6 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
               decoration: const InputDecoration(
                 labelText: '地點',
                 prefixIcon: Icon(Icons.map),
-                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 20),
@@ -1340,18 +1077,14 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: '花費',
-                prefixIcon: Icon(Icons.currency_yen),
-                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.money),
               ),
             ),
             const SizedBox(height: 20),
             TextField(
               controller: _noteC,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: '筆記',
-                border: OutlineInputBorder(),
-              ),
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: '筆記'),
             ),
           ],
         ),
@@ -1361,11 +1094,55 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 進階分帳功能
+// 附屬頁面：地圖、行李、必買、翻譯、分帳 (全雲端化或功能化)
 // ---------------------------------------------------------------------------
+
+// 地圖
+class MapListPage extends StatelessWidget {
+  const MapListPage({super.key});
+  Future<void> _openMap(String loc) async {
+    final Uri url = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$loc',
+    );
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      html.window.open(url.toString(), '_blank');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('地圖導航'), backgroundColor: Colors.green),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('activities').snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData)
+            return const Center(child: CircularProgressIndicator());
+          var docs = snapshot.data!.docs
+              .where((d) => (d.data() as Map)['location']?.isNotEmpty ?? false)
+              .toList();
+          return ListView.builder(
+            itemCount: docs.length,
+            itemBuilder: (c, i) {
+              var d = docs[i].data() as Map;
+              return ListTile(
+                leading: const Icon(Icons.map, color: Colors.red),
+                title: Text(d['title']),
+                subtitle: Text(d['location']),
+                trailing: const Icon(Icons.directions),
+                onTap: () => _openMap(d['location']),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// 進階分帳
 class AdvancedSplitBillDialog extends StatefulWidget {
   const AdvancedSplitBillDialog({super.key});
-
   @override
   State<AdvancedSplitBillDialog> createState() =>
       _AdvancedSplitBillDialogState();
@@ -1374,110 +1151,59 @@ class AdvancedSplitBillDialog extends StatefulWidget {
 class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   double total = 0;
   List<String> people = ['我', '旅伴'];
-  final TextEditingController _personC = TextEditingController();
-
-  double get share => people.isNotEmpty ? total / people.length : 0;
-
-  void _addPerson() {
-    if (_personC.text.isNotEmpty) {
-      setState(() {
-        people.add(_personC.text);
-        _personC.clear();
-      });
-    }
-  }
-
-  void _removePerson(int index) {
-    setState(() {
-      people.removeAt(index);
-    });
-  }
-
+  final TextEditingController _c = TextEditingController();
   @override
   Widget build(BuildContext context) {
+    double share = people.isNotEmpty ? total / people.length : 0;
     return AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.diversity_3, color: Colors.teal),
-          SizedBox(width: 8),
-          Text('分帳計算'),
-        ],
-      ),
+      title: const Text('分帳'),
       content: SingleChildScrollView(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '總金額 (円)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.monetization_on),
-              ),
+              decoration: const InputDecoration(labelText: '總金額'),
               onChanged: (v) => setState(() => total = double.tryParse(v) ?? 0),
             ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.teal.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                children: [
-                  const Text('每人應付', style: TextStyle(color: Colors.grey)),
-                  Text(
-                    '¥ ${share.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.teal,
-                    ),
-                  ),
-                  Text(
-                    '(共 ${people.length} 人)',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
+            const SizedBox(height: 10),
+            Text(
+              '每人 ¥${share.toStringAsFixed(0)}',
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.teal,
               ),
             ),
-            const SizedBox(height: 16),
             const Divider(),
             Row(
               children: [
                 Expanded(
                   child: TextField(
-                    controller: _personC,
-                    decoration: const InputDecoration(
-                      hintText: '輸入名字',
-                      isDense: true,
-                    ),
+                    controller: _c,
+                    decoration: const InputDecoration(hintText: '加人'),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.add_circle, color: Colors.blue),
-                  onPressed: _addPerson,
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    if (_c.text.isNotEmpty)
+                      setState(() {
+                        people.add(_c.text);
+                        _c.clear();
+                      });
+                  },
                 ),
               ],
             ),
-            SizedBox(
-              height: 100,
-              width: double.maxFinite,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: people.length,
-                itemBuilder: (c, i) => ListTile(
-                  dense: true,
-                  title: Text(people[i]),
-                  trailing: IconButton(
-                    icon: const Icon(
-                      Icons.remove_circle_outline,
-                      color: Colors.red,
+            Wrap(
+              children: people
+                  .map(
+                    (p) => Chip(
+                      label: Text(p),
+                      onDeleted: () => setState(() => people.remove(p)),
                     ),
-                    onPressed: () => _removePerson(i),
-                  ),
-                ),
-              ),
+                  )
+                  .toList(),
             ),
           ],
         ),
@@ -1492,10 +1218,7 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 附屬頁面 (行李、必買、翻譯、地圖)
-// ---------------------------------------------------------------------------
-
+// 行李、必買、翻譯 (這裡簡化為本地存儲示意，若需雲端可套用 Firestore)
 class PackingListPage extends StatefulWidget {
   const PackingListPage({super.key});
   @override
@@ -1503,31 +1226,19 @@ class PackingListPage extends StatefulWidget {
 }
 
 class _PackingListPageState extends State<PackingListPage> {
-  final Map<String, bool> _items = {
-    '防滑好行走的鞋子': false,
-    '防滑鞋墊': false,
-    '防水噴霧': false,
-    '護照': false,
-    '日幣': false,
-  };
+  final Map<String, bool> _items = {'護照': false, '日幣': false};
   final TextEditingController _c = TextEditingController();
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('行李清單'), backgroundColor: Colors.blue),
+      appBar: AppBar(title: const Text('行李'), backgroundColor: Colors.blue),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(8),
             child: Row(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _c,
-                    decoration: const InputDecoration(hintText: '新增項目'),
-                  ),
-                ),
+                Expanded(child: TextField(controller: _c)),
                 IconButton(
                   icon: const Icon(Icons.add),
                   onPressed: () {
@@ -1567,24 +1278,19 @@ class ShoppingListPage extends StatefulWidget {
 }
 
 class _ShoppingListPageState extends State<ShoppingListPage> {
-  final List<String> _list = ['仙台牛舌', '萩之月', '毛豆泥麻糬', '會津清酒'];
+  final List<String> _list = ['牛舌', '清酒'];
   final TextEditingController _c = TextEditingController();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('必買清單'), backgroundColor: Colors.pink),
+      appBar: AppBar(title: const Text('必買'), backgroundColor: Colors.pink),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(8),
             child: Row(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _c,
-                    decoration: const InputDecoration(hintText: '新增必買'),
-                  ),
-                ),
+                Expanded(child: TextField(controller: _c)),
                 IconButton(
                   icon: const Icon(Icons.add),
                   onPressed: () {
@@ -1624,130 +1330,61 @@ class TranslatorPage extends StatefulWidget {
 
 class _TranslatorPageState extends State<TranslatorPage> {
   final List<Map<String, String>> _list = [
-    {'jp': 'お湯をください', 'zh': '請給我溫水'},
-    {'jp': 'これはいくらですか？', 'zh': '這個多少錢?'},
-    {'jp': 'トイレはどこですか？', 'zh': '廁所在哪裡?'},
+    {'jp': 'トイレ', 'zh': '廁所'},
   ];
-  final TextEditingController _jpC = TextEditingController();
-  final TextEditingController _zhC = TextEditingController();
-
-  void _add() {
-    if (_jpC.text.isNotEmpty && _zhC.text.isNotEmpty) {
-      setState(() {
-        _list.add({'jp': _jpC.text, 'zh': _zhC.text});
-        _jpC.clear();
-        _zhC.clear();
-      });
-    }
-  }
-
+  final TextEditingController _j = TextEditingController(),
+      _z = TextEditingController();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('翻譯官'), backgroundColor: Colors.purple),
+      appBar: AppBar(title: const Text('翻譯'), backgroundColor: Colors.purple),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
+            padding: const EdgeInsets.all(8),
+            child: Row(
               children: [
-                TextField(
-                  controller: _jpC,
-                  decoration: const InputDecoration(
-                    hintText: '日文',
-                    isDense: true,
+                Expanded(
+                  child: TextField(
+                    controller: _j,
+                    decoration: const InputDecoration(hintText: '日'),
                   ),
                 ),
-                TextField(
-                  controller: _zhC,
-                  decoration: const InputDecoration(
-                    hintText: '中文',
-                    isDense: true,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _z,
+                    decoration: const InputDecoration(hintText: '中'),
                   ),
                 ),
-                ElevatedButton(onPressed: _add, child: const Text('新增翻譯卡')),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    if (_j.text.isNotEmpty)
+                      setState(() {
+                        _list.add({'jp': _j.text, 'zh': _z.text});
+                        _j.clear();
+                        _z.clear();
+                      });
+                  },
+                ),
               ],
             ),
           ),
           Expanded(
             child: ListView.builder(
               itemCount: _list.length,
-              itemBuilder: (c, i) => Card(
-                child: ListTile(
-                  title: Text(_list[i]['jp']!),
-                  subtitle: Text(_list[i]['zh']!),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete),
-                    onPressed: () => setState(() => _list.removeAt(i)),
-                  ),
+              itemBuilder: (c, i) => ListTile(
+                title: Text(_list[i]['jp']!),
+                subtitle: Text(_list[i]['zh']!),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete),
+                  onPressed: () => setState(() => _list.removeAt(i)),
                 ),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class MapListPage extends StatelessWidget {
-  const MapListPage({super.key});
-
-  Future<void> _openMap(String location) async {
-    final Uri googleUrl = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$location',
-    );
-
-    if (await canLaunchUrl(googleUrl)) {
-      await launchUrl(googleUrl, mode: LaunchMode.externalApplication);
-    } else {
-      try {
-        html.window.open(googleUrl.toString(), '_blank');
-      } catch (e) {
-        print("Web launch failed: $e");
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('雲端地圖導航'),
-        backgroundColor: Colors.green,
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('activities').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData)
-            return const Center(child: CircularProgressIndicator());
-
-          var docs = snapshot.data!.docs.where((doc) {
-            var data = doc.data() as Map<String, dynamic>;
-            return data['location'] != null &&
-                data['location'].toString().isNotEmpty;
-          }).toList();
-
-          if (docs.isEmpty) return const Center(child: Text('目前沒有設定地點的行程'));
-
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              var data = docs[index].data() as Map<String, dynamic>;
-              String title = data['title'];
-              String location = data['location'];
-              String time = data['time'];
-
-              return ListTile(
-                leading: const Icon(Icons.map, color: Colors.red),
-                title: Text(title),
-                subtitle: Text('$time - $location'),
-                trailing: const Icon(Icons.directions, color: Colors.blue),
-                onTap: () => _openMap(location),
-              );
-            },
-          );
-        },
       ),
     );
   }
