@@ -137,7 +137,7 @@ class ElegantItineraryPage extends StatefulWidget {
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   int _selectedDayIndex = 0;
   final String _bgImage =
-      'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80';
+      'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSLKhcB5F9FQl1QS4diAnfhxsCw9eQN6afXIA&s';
 
   Timer? _timer;
   String _currentTime = '';
