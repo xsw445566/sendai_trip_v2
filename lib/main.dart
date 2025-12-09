@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'dart:math';
 import 'dart:convert';
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html; // 用於網頁版開啟 Google Maps
+import 'dart:html' as html; // 用於網頁版開啟
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:url_launcher/url_launcher.dart'; // 需執行 flutter pub add url_launcher
+import 'package:url_launcher/url_launcher.dart';
 
 // ---------------------------------------------------------------------------
-// ★★★ 1. Firebase 設定區 ★★★
+// 1. Firebase 設定
 // ---------------------------------------------------------------------------
 const firebaseOptions = FirebaseOptions(
   apiKey: "AIzaSyBB6wqntt9gzoC1qHonWkSwH2NS4I9-TLY",
@@ -23,7 +22,7 @@ const firebaseOptions = FirebaseOptions(
 );
 
 // ---------------------------------------------------------------------------
-// ★★★ 2. 天氣 API Key ★★★
+// 2. 天氣 API Key
 // ---------------------------------------------------------------------------
 const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc";
 
@@ -32,7 +31,7 @@ void main() async {
   try {
     await Firebase.initializeApp(options: firebaseOptions);
     FirebaseAnalytics analytics = FirebaseAnalytics.instance;
-    await analytics.logAppOpen(); // 紀錄 APP 開啟
+    await analytics.logAppOpen();
   } catch (e) {
     print("Firebase 初始化訊息: $e");
   }
@@ -99,7 +98,6 @@ class Activity {
 // ---------------------------------------------------------------------------
 // 主程式 UI
 // ---------------------------------------------------------------------------
-
 class TohokuTripApp extends StatelessWidget {
   const TohokuTripApp({super.key});
 
@@ -113,7 +111,7 @@ class TohokuTripApp extends StatelessWidget {
     return MaterialApp(
       title: '仙台星宇絕美旅程',
       debugShowCheckedModeBanner: false,
-      navigatorObservers: [observer], // 加入 GA 頁面追蹤
+      navigatorObservers: [observer],
       theme: ThemeData(
         primaryColor: const Color(0xFF8B2E2E),
         scaffoldBackgroundColor: const Color(0xFFF9F8F4),
@@ -138,7 +136,6 @@ class ElegantItineraryPage extends StatefulWidget {
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   int _selectedDayIndex = 0;
-  // 固定背景圖，移除更換功能
   final String _bgImage =
       'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80';
 
@@ -153,7 +150,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
 
-  // ★★★ 解決閃爍關鍵：Stream 快取 ★★★
+  // ★★★ 解決閃爍：Stream 快取變數 ★★★
   late Stream<QuerySnapshot> _currentStream;
 
   @override
@@ -161,16 +158,17 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.initState();
     _updateTime();
     _fetchRealWeather();
-    _updateStream(); // 初始化資料流
 
-    // 每秒更新時間，每30分鐘更新天氣
+    // 初始化 Stream
+    _updateStream();
+
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
-      _updateTime();
+      _updateTime(); // 這裡只更新時間變數，不會影響 Stream
       if (t.tick % 1800 == 0) _fetchRealWeather();
     });
   }
 
-  // 當選擇的天數改變時，才更新 Stream，避免時間跳動導致重連
+  // 只有切換日期時，才重新建立 Stream
   void _updateStream() {
     _currentStream = _activitiesRef
         .where('dayIndex', isEqualTo: _selectedDayIndex)
@@ -248,7 +246,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   Widget _buildTotalCostDisplay() {
-    // 這裡使用即時監聽來計算總花費
+    // 這裡的 Stream 不需要快取，因為它要監聽所有日期的總和
     return StreamBuilder<QuerySnapshot>(
       stream: _activitiesRef.snapshots(),
       builder: (context, snapshot) {
@@ -351,14 +349,29 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     _navigateToDetail(newActivity, true);
   }
 
-  void _showSplitBillDialog() {
-    // 彈出進階分帳視窗
-    showDialog(
-      context: context,
-      builder: (context) => const AdvancedSplitBillDialog(),
-    );
+  // ★ 處理工具列點擊
+  void _handleToolTap(String label) {
+    Widget page;
+    switch (label) {
+      case '行李':
+        page = const PackingListPage();
+        break;
+      case '必買':
+        page = const ShoppingListPage();
+        break;
+      case '翻譯':
+        page = const TranslatorPage();
+        break;
+      case '地圖':
+        page = const MapListPage();
+        break; // 雲端地圖
+      default:
+        return;
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (context) => page));
   }
 
+  // ★ 匯率換算
   void _showCurrencyDialog() {
     double rate = 0.215;
     double jpy = 0;
@@ -398,25 +411,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  void _handleToolTap(String label) {
-    Widget page;
-    switch (label) {
-      case '行李':
-        page = const PackingListPage();
-        break;
-      case '必買':
-        page = const ShoppingListPage();
-        break;
-      case '翻譯':
-        page = const TranslatorPage();
-        break;
-      case '地圖':
-        page = const MapListPage();
-        break;
-      default:
-        return;
-    }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => page));
+  // ★ 進階分帳
+  void _showSplitBillDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => const AdvancedSplitBillDialog(),
+    );
   }
 
   @override
@@ -577,7 +577,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                 ),
 
-                // 2. 工具列 (已刪除匯入資料、更換背景)
+                // 2. 工具列 (已移除匯入與背景)
                 SizedBox(
                   height: 90,
                   child: ListView(
@@ -637,7 +637,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       bool isSelected = _selectedDayIndex == index;
                       return GestureDetector(
                         onTap: () {
-                          // 切換日期時更新 Stream (關鍵)
+                          // 切換日期 -> 更新 Stream -> 介面自動重繪
                           setState(() {
                             _selectedDayIndex = index;
                             _updateStream();
@@ -686,21 +686,20 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
                 const SizedBox(height: 10),
 
-                // 4. 行程列表
+                // 4. 行程列表 (使用快取的 Stream)
                 Expanded(
                   child: StreamBuilder<QuerySnapshot>(
-                    stream: _currentStream, // 使用已初始化的 Stream，防止閃爍
+                    stream: _currentStream,
                     builder: (context, snapshot) {
                       if (snapshot.hasError)
                         return Center(child: Text('錯誤: ${snapshot.error}'));
-                      // 移除 Loading，避免閃爍
+
+                      // ★ 關鍵優化：不回傳 Loading，直接顯示當下資料或空，避免每秒閃爍
                       if (!snapshot.hasData) return const SizedBox();
 
                       List<Activity> activities = snapshot.data!.docs
                           .map((doc) => Activity.fromFirestore(doc))
                           .toList();
-
-                      // 在前端進行排序
                       activities.sort((a, b) => a.time.compareTo(b.time));
 
                       if (activities.isEmpty) {
@@ -860,7 +859,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
           ),
 
-          // 浮動新增按鈕
           Positioned(
             right: 20,
             bottom: 90,
@@ -872,7 +870,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
           ),
 
-          // 底部總花費
           Positioned(
             left: 0,
             right: 0,
@@ -1153,7 +1150,6 @@ class AdvancedSplitBillDialog extends StatefulWidget {
 
 class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   double total = 0;
-  // 預設兩人
   List<String> people = ['我', '旅伴'];
   final TextEditingController _personC = TextEditingController();
 
@@ -1188,7 +1184,6 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 金額輸入
             TextField(
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
@@ -1199,7 +1194,6 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
               onChanged: (v) => setState(() => total = double.tryParse(v) ?? 0),
             ),
             const SizedBox(height: 16),
-            // 結果顯示
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -1225,7 +1219,6 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            // 人員列表
             const Divider(),
             Row(
               children: [
@@ -1277,7 +1270,7 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// 附屬頁面 (行李、必買、翻譯、地圖) - 已升級為可新增/雲端化
+// 附屬頁面 (行李、必買、翻譯 - 可新增) (地圖 - 雲端化 + Google Map)
 // ---------------------------------------------------------------------------
 
 class PackingListPage extends StatefulWidget {
@@ -1287,14 +1280,7 @@ class PackingListPage extends StatefulWidget {
 }
 
 class _PackingListPageState extends State<PackingListPage> {
-  // 這裡使用本地狀態模擬可新增，若需雲端同步可比照 Activity 改用 Firestore
-  final Map<String, bool> _items = {
-    '防滑好行走的鞋子': false,
-    '防滑鞋墊': false,
-    '防水噴霧': false,
-    '護照': false,
-    '日幣': false,
-  };
+  final Map<String, bool> _items = {'防滑鞋': false, '護照': false, '日幣': false};
   final TextEditingController _c = TextEditingController();
 
   @override
@@ -1352,7 +1338,7 @@ class ShoppingListPage extends StatefulWidget {
 }
 
 class _ShoppingListPageState extends State<ShoppingListPage> {
-  final List<String> _list = ['仙台牛舌', '萩之月', '毛豆泥麻糬', '會津清酒'];
+  final List<String> _list = ['牛舌', '萩之月', '毛豆泥麻糬'];
   final TextEditingController _c = TextEditingController();
   @override
   Widget build(BuildContext context) {
@@ -1480,20 +1466,14 @@ class MapListPage extends StatelessWidget {
   const MapListPage({super.key});
 
   Future<void> _openMap(String location) async {
-    // 建立 Google Maps 網址
+    // 使用 'dir' (direction) 模式，destination 填入地點
     final Uri googleUrl = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$location',
+      'https://www.google.com/maps/dir/?api=1&destination=$location',
     );
 
     if (await canLaunchUrl(googleUrl)) {
-      await launchUrl(
-        googleUrl,
-        mode: LaunchMode.externalApplication,
-      ); // 在外部瀏覽器或 APP 開啟
+      await launchUrl(googleUrl, mode: LaunchMode.externalApplication);
     } else {
-      // 如果手機無法開啟，嘗試用網頁版開啟 (Fallback)
-      // ignore: avoid_print
-      print('Could not launch $googleUrl');
       // Web fallback
       try {
         html.window.open(googleUrl.toString(), '_blank');
@@ -1512,13 +1492,11 @@ class MapListPage extends StatelessWidget {
         backgroundColor: Colors.green,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // 讀取所有行程 (不分日期)
         stream: FirebaseFirestore.instance.collection('activities').snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
 
-          // 過濾掉沒有地點的行程
           var docs = snapshot.data!.docs.where((doc) {
             var data = doc.data() as Map<String, dynamic>;
             return data['location'] != null &&
@@ -1533,14 +1511,13 @@ class MapListPage extends StatelessWidget {
               var data = docs[index].data() as Map<String, dynamic>;
               String title = data['title'];
               String location = data['location'];
-              String time = data['time'];
 
               return ListTile(
                 leading: const Icon(Icons.map, color: Colors.red),
                 title: Text(title),
-                subtitle: Text('$time - $location'),
+                subtitle: Text(location),
                 trailing: const Icon(Icons.directions, color: Colors.blue),
-                onTap: () => _openMap(location), // 點擊跳轉 Google Maps
+                onTap: () => _openMap(location),
               );
             },
           );
