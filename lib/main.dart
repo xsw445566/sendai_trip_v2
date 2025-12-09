@@ -217,8 +217,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
 
-  // --- 航班資料 (預設靜態值 - 優化去程資料顯示) ---
-  // 若 API 抓不到 2026 年資料，就會顯示這些完整的靜態資料
+  // --- 航班資料 (已手動補齊 JX862 的靜態資料，當 API 沒抓到時會顯示這些) ---
   FlightInfo _outboundFlight = FlightInfo(
     flightNo: 'JX862',
     fromCode: 'TPE',
@@ -229,9 +228,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     schedDep: '11:50',
     schedArr: '16:00',
     terminal: '1',
-    gate: 'B5',
-    baggage: '--',
-    status: 'Scheduled', // 手動補齊資訊
+    gate: 'A5',
+    baggage: '05',
+    status: 'Scheduled', // 這裡補齊了航廈資訊
   );
 
   FlightInfo _inboundFlight = FlightInfo(
@@ -280,6 +279,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   Future<void> _updateFlightStatus() async {
     if (_flightApiKey.isEmpty) return;
     await _fetchSingleFlight('JX862', (data) {
+      // 只有當 API 回傳有效資料時才覆蓋
       setState(() => _outboundFlight = data);
     });
     await _fetchSingleFlight('JX863', (data) {
@@ -301,6 +301,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         final jsonResponse = json.decode(response.body);
         if (jsonResponse['response'] != null &&
             (jsonResponse['response'] as List).isNotEmpty) {
+          // 只取第一筆，但要注意如果第一筆是明天的，可能沒有即時資訊
           var flightData = jsonResponse['response'][0];
           onSuccess(FlightInfo.fromJson(flightData));
         }
@@ -415,9 +416,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     Navigator.push(context, MaterialPageRoute(builder: (context) => page));
   }
 
-  // --- 匯率彈窗 (即時更新版) ---
   void _showCurrencyDialog() {
-    // 預設值 (避免 API 失敗時顯示 0)
     double rate = 0.215;
     double jpy = 0;
     double twd = 0;
@@ -428,10 +427,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // 取得即時匯率的函式
             Future<void> fetchRate() async {
               try {
-                // 使用 ExchangeRate-API (免費、無須 Key、更新頻率高)
                 final url = Uri.parse(
                   'https://api.exchangerate-api.com/v4/latest/JPY',
                 );
@@ -443,7 +440,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       setState(() {
                         rate = (data['rates']['TWD']).toDouble();
                         isLoading = false;
-                        // 更新計算結果
                         twd = jpy * rate;
                       });
                     }
@@ -455,7 +451,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               }
             }
 
-            // 第一次打開時執行
             if (isLoading) fetchRate();
 
             return AlertDialog(
@@ -502,10 +497,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   Text(
                     '目前匯率: 1 JPY ≈ ${rate.toStringAsFixed(4)} TWD',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  const Text(
-                    '(資料來源: 國際即時匯率)',
-                    style: TextStyle(fontSize: 10, color: Colors.grey),
                   ),
                 ],
               ),
