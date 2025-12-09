@@ -1,10 +1,31 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math';
-import 'dart:convert'; // 用於解析 JSON
-import 'package:http/http.dart' as http; // 用於發送網路請求
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() {
+// ---------------------------------------------------------------------------
+// ★★★ Firebase 設定區 (請填入你的 Web App Config) ★★★
+// ---------------------------------------------------------------------------
+const firebaseOptions = FirebaseOptions(
+  apiKey: "AIzaSyBB6wqntt9gzoC1qHonWkSwH2NS4I9-TLY", // 例如: AIzaSyD...
+  authDomain: "sendai-app-18d03.firebaseapp.com",
+  projectId: "sendai-app-18d03",
+  storageBucket: "sendai-app-18d03.firebasestorage.app",
+  messagingSenderId: "179113239546",
+  appId: "1:179113239546:web:d45344e45740fe0df03a43",
+);
+
+void main() async {
+  // 確保 Flutter 引擎與 Firebase 初始化完成
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(options: firebaseOptions);
+  } catch (e) {
+    print("Firebase 初始化失敗 (若是重複初始化可忽略): $e");
+  }
   runApp(const TohokuTripApp());
 }
 
@@ -23,6 +44,7 @@ class Activity {
   double cost;
   ActivityType type;
   List<String> imageUrls;
+  int dayIndex; // 新增：用來區分是第幾天的行程
 
   Activity({
     required this.id,
@@ -33,7 +55,38 @@ class Activity {
     this.cost = 0.0,
     this.type = ActivityType.sight,
     this.imageUrls = const [],
+    required this.dayIndex,
   });
+
+  // 轉成 Map 存入 Firebase
+  Map<String, dynamic> toMap() {
+    return {
+      'time': time,
+      'title': title,
+      'location': location,
+      'notes': notes,
+      'cost': cost,
+      'type': type.index, // 存 enum 的索引值 (0, 1, 2...)
+      'imageUrls': imageUrls,
+      'dayIndex': dayIndex,
+    };
+  }
+
+  // 從 Firebase 讀出
+  factory Activity.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Activity(
+      id: doc.id,
+      time: data['time'] ?? '00:00',
+      title: data['title'] ?? '',
+      location: data['location'] ?? '',
+      notes: data['notes'] ?? '',
+      cost: (data['cost'] ?? 0).toDouble(),
+      type: ActivityType.values[data['type'] ?? 0],
+      imageUrls: List<String>.from(data['imageUrls'] ?? []),
+      dayIndex: data['dayIndex'] ?? 0,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -49,14 +102,14 @@ class TohokuTripApp extends StatelessWidget {
       title: '仙台星宇絕美旅程',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primaryColor: const Color(0xFF8B2E2E), // 深紅
-        scaffoldBackgroundColor: const Color(0xFFF9F8F4), // 米白紙質感
+        primaryColor: const Color(0xFF8B2E2E),
+        scaffoldBackgroundColor: const Color(0xFFF9F8F4),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF8B2E2E),
           surface: const Color(0xFFF9F8F4),
         ),
         useMaterial3: true,
-        fontFamily: 'Roboto', 
+        fontFamily: 'Roboto',
       ),
       home: const ElegantItineraryPage(),
     );
@@ -72,72 +125,29 @@ class ElegantItineraryPage extends StatefulWidget {
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   int _selectedDayIndex = 0;
-  String _bgImage = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTVcp6dGHNNVXkYmgcqQbKKcmJ75hVlVmaxtA&s'; // 預設背景
+  String _bgImage = 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80';
   Timer? _timer;
   String _currentTime = '';
   
-  // ---------------------------------------------------------------------------
-  // 天氣相關設定 (OpenWeatherMap)
-  // ---------------------------------------------------------------------------
-  // ★★★ 請將下面這行換成你的 API Key ★★★
-  final String _apiKey = "956b9c1aeed5b382fd6aa09218369bbc"; 
-  final String _city = "Sendai"; // 地點：仙台
+  // 天氣變數 (請填入你的 API Key)
+  final String _apiKey = "請將你的OpenWeatherMap_Key貼在這裡"; 
+  final String _city = "Sendai";
   
-  String _weatherTemp = "--°";   // 溫度
-  String _weatherCond = "載入中..."; // 狀況
-  IconData _weatherIcon = Icons.cloud_download; // 圖示
+  String _weatherTemp = "--°";
+  String _weatherCond = "載入中...";
+  IconData _weatherIcon = Icons.cloud_download;
 
-  // ---------------------------------------------------------------------------
-  // 核心資料：5天的行程
-  // ---------------------------------------------------------------------------
-  final List<List<Activity>> _dailyActivities = [
-    // Day 1
-    [
-      Activity(id: '1-1', time: '07:25', title: '桃園機場集合', location: '第二航廈', notes: '星宇航空櫃檯', type: ActivityType.transport),
-      Activity(id: '1-2', time: '11:50', title: '搭機前往仙台', location: 'JX862', type: ActivityType.transport),
-      Activity(id: '1-3', time: '16:00', title: '抵達仙台機場', location: '仙台空港', type: ActivityType.transport),
-      Activity(id: '1-4', time: '18:00', title: '仙台市區逛街', location: '一番町', notes: '晚餐自理，推薦牛舌', type: ActivityType.shop, cost: 5000),
-    ],
-    // Day 2
-    [
-      Activity(id: '2-1', time: '09:00', title: '藏王樹冰纜車', location: '藏王山麓站', notes: '冬季限定 ICE MONSTER', cost: 3000, type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1548263594-a71ea65a85b8?q=80']),
-      Activity(id: '2-2', time: '13:00', title: '銀山溫泉散策', location: '銀山溫泉', notes: '神隱少女場景', type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1533052445851-913437142b78?q=80']),
-      Activity(id: '2-3', time: '18:00', title: '飯店會席料理', location: '天童溫泉', type: ActivityType.food),
-    ],
-    // Day 3
-    [
-      Activity(id: '3-1', time: '09:30', title: '飯豊雪上樂園', location: '飯豊', notes: '無限暢玩雪上摩托車', type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1551524559-8af4e6624178?q=80']),
-      Activity(id: '3-2', time: '14:00', title: '南陽熊野大社', location: '熊野大社', notes: '尋找三隻兔子', type: ActivityType.sight),
-      Activity(id: '3-3', time: '16:00', title: '大和川酒造', location: '喜多方', notes: '試飲日本酒', type: ActivityType.shop),
-    ],
-    // Day 4
-    [
-      Activity(id: '4-1', time: '10:00', title: '大內宿', location: '大內宿', notes: '日本三大茅葺屋聚落', type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1533423376241-750f6820464f?q=80']),
-      Activity(id: '4-2', time: '13:00', title: '會津鐵道體驗', location: '湯野上溫泉', notes: '茅草屋車站', type: ActivityType.transport),
-      Activity(id: '4-3', time: '14:00', title: '蘆之牧溫泉站', location: '蘆之牧溫泉', notes: '拜訪貓咪站長', type: ActivityType.sight),
-      Activity(id: '4-4', time: '16:00', title: '會津若松城', location: '鶴城', type: ActivityType.sight),
-    ],
-    // Day 5
-    [
-      Activity(id: '5-1', time: '09:00', title: '松島遊船', location: '松島海岸', notes: '日本三景', cost: 1500, type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1572535780442-8354c553835c?q=80']),
-      Activity(id: '5-2', time: '10:30', title: '五大堂', location: '五大堂', notes: '走結緣橋', type: ActivityType.sight),
-      Activity(id: '5-3', time: '13:00', title: 'AEON MALL 購物', location: '名取 AEON', notes: '最後衝刺', type: ActivityType.shop, cost: 20000),
-      Activity(id: '5-4', time: '15:30', title: '前往機場', location: '仙台空港', type: ActivityType.transport),
-    ],
-  ];
+  // Firebase Collection 參照
+  final CollectionReference _activitiesRef = FirebaseFirestore.instance.collection('activities');
 
   @override
   void initState() {
     super.initState();
     _updateTime();
-    _fetchRealWeather(); // 初始化時抓取天氣
-
-    // 設定計時器：每秒更新時間，每30分鐘更新天氣
+    _fetchRealWeather();
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTime();
-      if (t.tick % 1800 == 0) {
-        _fetchRealWeather();
-      }
+      if (t.tick % 1800 == 0) _fetchRealWeather();
     });
   }
 
@@ -154,26 +164,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // 天氣功能實作
-  // ---------------------------------------------------------------------------
-  
   Future<void> _fetchRealWeather() async {
-    // 檢查 API Key 是否已設定
-    if (_apiKey.contains("請將你的API_KEY")) {
-      setState(() {
-        _weatherCond = "需設定Key";
-        _weatherTemp = "?";
-      });
-      return;
-    }
+    if (_apiKey.contains("OpenWeatherMap_Key")) return; // 防止未設定 Key 報錯
 
     final url = Uri.parse(
         'https://api.openweathermap.org/data/2.5/weather?q=$_city&appid=$_apiKey&units=metric&lang=zh_tw');
-
     try {
       final response = await http.get(url);
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
@@ -183,14 +180,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           String iconCode = data['weather'][0]['icon'];
           _weatherIcon = _mapWeatherIcon(iconCode);
         });
-      } else {
-        print("Weather API Error: ${response.statusCode}");
       }
     } catch (e) {
       print("Error fetching weather: $e");
-      setState(() {
-        _weatherCond = "連線失敗";
-      });
     }
   }
 
@@ -210,167 +202,79 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 計算邏輯
-  // ---------------------------------------------------------------------------
-
-  double _calculateTotalCost() {
-    double total = 0;
-    for (var list in _dailyActivities) {
-      for (var item in list) {
-        total += item.cost;
-      }
-    }
-    return total;
-  }
-
-  double _calculateDailyCost(int dayIndex) {
-    double total = 0;
-    for (var item in _dailyActivities[dayIndex]) {
-      total += item.cost;
-    }
-    return total;
-  }
-
-  // ---------------------------------------------------
-  // Dialogs & Navigation
-  // ---------------------------------------------------
-
-  void _showChangeImageDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('更換背景圖片'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+  // 計算總花費 (讀取 Firebase 串流)
+  Widget _buildTotalCostDisplay() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _activitiesRef.snapshots(),
+      builder: (context, snapshot) {
+        double total = 0;
+        double daily = 0;
+        if (snapshot.hasData) {
+          for (var doc in snapshot.data!.docs) {
+            var data = doc.data() as Map<String, dynamic>;
+            double cost = (data['cost'] ?? 0).toDouble();
+            total += cost;
+            if (data['dayIndex'] == _selectedDayIndex) {
+              daily += cost;
+            }
+          }
+        }
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('請貼上圖片連結 (URL):', style: TextStyle(fontSize: 14, color: Colors.grey)),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(hintText: 'https://...'),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('TOTAL EXPENSE (ALL DAYS)', style: TextStyle(fontSize: 10, letterSpacing: 1.5, color: Colors.grey)),
+                Text('¥ ${total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontFamily: 'Serif', color: Color(0xFF8B2E2E))),
+              ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                const Text('TODAY', style: TextStyle(fontSize: 10, letterSpacing: 1.5, color: Colors.grey)),
+                Text('¥ ${daily.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontFamily: 'Serif', color: Colors.black87)),
+              ],
             ),
           ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          TextButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                setState(() => _bgImage = controller.text);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('確定'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCurrencyDialog() {
-    double rate = 0.215; 
-    double jpy = 0;
-    double twd = 0;
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
-          return AlertDialog(
-            title: const Row(children: [Icon(Icons.currency_exchange, color: Colors.orange), SizedBox(width: 8), Text('匯率換算')]),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '日幣 (JPY)', suffixText: '円', border: OutlineInputBorder()),
-                  onChanged: (val) {
-                    setState(() {
-                      jpy = double.tryParse(val) ?? 0;
-                      twd = jpy * rate;
-                    });
-                  },
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Text('匯率: '),
-                    SizedBox(width: 80, child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.all(8)), controller: TextEditingController(text: rate.toString()), onChanged: (val) { rate = double.tryParse(val) ?? 0.215; setState(() => twd = jpy * rate); },),),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                  child: Column(children: [const Text('約合台幣', style: TextStyle(color: Colors.grey)), Text('NT\$ ${twd.toStringAsFixed(0)}', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.orange))]),
-                )
-              ],
-            ),
-            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('關閉'))],
-          );
-        });
-      },
-    );
-  }
-
-  void _showSplitBillDialog() {
-    double total = 0;
-    int people = 2;
-    double result = 0;
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
-          void calc() { if (people > 0) result = total / people; }
-          return AlertDialog(
-            title: const Row(children: [Icon(Icons.diversity_3, color: Colors.green), SizedBox(width: 8), Text('分帳計算機')]),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '總金額 (円)', prefixIcon: Icon(Icons.receipt_long), border: OutlineInputBorder()), onChanged: (val) { setState(() { total = double.tryParse(val) ?? 0; calc(); }); },),
-                const SizedBox(height: 16),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('人數:', style: TextStyle(fontSize: 16)), Row(children: [IconButton(onPressed: () => setState(() { if(people>1) people--; calc(); }), icon: const Icon(Icons.remove_circle_outline)), Text('$people', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), IconButton(onPressed: () => setState(() { people++; calc(); }), icon: const Icon(Icons.add_circle_outline))])]),
-                const Divider(),
-                Container(width: double.infinity, padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)), child: Column(children: [const Text('每人應付', style: TextStyle(color: Colors.grey)), Text('¥ ${result.toStringAsFixed(0)}', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green))]))
-              ],
-            ),
-            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('關閉'))],
-          );
-        });
+        );
       },
     );
   }
 
   // 導航到詳細頁面
-  void _navigateToDetail(Activity activity, int dayIndex) {
+  void _navigateToDetail(Activity activity, bool isNew) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => ActivityDetailPage(activity: activity, onSave: (updatedActivity) {
-        setState(() {
-          // 更新資料
-          int index = _dailyActivities[dayIndex].indexWhere((a) => a.id == updatedActivity.id);
-          if (index != -1) {
-            _dailyActivities[dayIndex][index] = updatedActivity;
+      MaterialPageRoute(builder: (context) => ActivityDetailPage(
+        activity: activity, 
+        onSave: (updatedActivity) async {
+          if (isNew) {
+            // 新增到 Firebase
+            await _activitiesRef.add(updatedActivity.toMap());
+          } else {
+            // 更新 Firebase
+            await _activitiesRef.doc(updatedActivity.id).update(updatedActivity.toMap());
           }
-        });
-      })),
+        },
+        onDelete: isNew ? null : () async {
+          // 從 Firebase 刪除
+          await _activitiesRef.doc(activity.id).delete();
+        },
+      )),
     );
   }
 
   // 新增行程
   void _addNewActivity(int dayIndex) {
     Activity newActivity = Activity(
-      id: DateTime.now().toString(),
+      id: '', // ID 會由 Firebase 自動產生
       time: '00:00',
       title: '新行程',
       type: ActivityType.sight,
+      dayIndex: dayIndex,
     );
-    _navigateToDetail(newActivity, dayIndex);
-    setState(() {
-      _dailyActivities[dayIndex].add(newActivity);
-      _dailyActivities[dayIndex].sort((a, b) => a.time.compareTo(b.time));
-    });
+    _navigateToDetail(newActivity, true);
   }
 
   // 導航功能
@@ -380,10 +284,41 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       case '行李': page = const PackingListPage(); break;
       case '必買': page = const ShoppingListPage(); break;
       case '翻譯': page = const TranslatorPage(); break;
-      case '地圖': page = MapListPage(allActivities: _dailyActivities); break;
+      // 地圖暫時需傳入空列表，因為資料已在雲端
+      case '地圖': page = const MapListPage(); break; 
       default: return;
     }
     Navigator.push(context, MaterialPageRoute(builder: (context) => page));
+  }
+  
+  void _showCurrencyDialog() {
+    double rate = 0.215; 
+    double jpy = 0;
+    double twd = 0;
+    showDialog(context: context, builder: (context) {
+      return StatefulBuilder(builder: (context, setState) {
+        return AlertDialog(
+          title: const Text('匯率換算'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '日幣 (JPY)'), onChanged: (v) => setState(() { jpy = double.tryParse(v)??0; twd = jpy*rate; })),
+            Text('約 NT\$ ${twd.toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange)),
+          ]),
+        );
+      });
+    });
+  }
+
+  void _showSplitBillDialog() {
+    // 簡單版分帳
+    showDialog(context: context, builder: (context) => const AlertDialog(title: Text('分帳'), content: Text('請自行實作或參考前版')));
+  }
+
+  void _showChangeImageDialog() {
+    final c = TextEditingController();
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('背景'), content: TextField(controller: c),
+      actions: [TextButton(onPressed: (){ if(c.text.isNotEmpty) setState(()=>_bgImage=c.text); Navigator.pop(ctx); }, child: const Text('OK'))]
+    ));
   }
 
   @override
@@ -413,11 +348,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
           ),
 
-          // 主要內容區
           SafeArea(
             child: Column(
               children: [
-                // 1. 頂部資訊區 (日期、地點、天氣)
+                // 1. 頂部資訊區
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10),
                   child: Row(
@@ -440,29 +374,19 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           const Row(children: [Icon(Icons.location_on, size: 14, color: Colors.grey), SizedBox(width: 4), Text('Miyagi, Japan', style: TextStyle(color: Colors.grey))]),
                         ],
                       ),
-                      
-                      // ★★★ 天氣卡片區 (點擊可重新整理) ★★★
                       GestureDetector(
                         onTap: () {
                           _fetchRealWeather();
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('更新天氣資訊中...'), duration: Duration(seconds: 1)));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('更新天氣...'), duration: Duration(seconds: 1)));
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.95),
-                            border: Border.all(color: const Color(0xFFD4C5A9)), 
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
-                          ),
+                          decoration: BoxDecoration(color: Colors.white.withOpacity(0.95), borderRadius: BorderRadius.circular(12)),
                           child: Column(
                             children: [
                               Icon(_weatherIcon, color: Colors.amber, size: 32),
-                              const SizedBox(height: 4),
-                              Text(_weatherTemp, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Serif')),
+                              Text(_weatherTemp, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                               Text(_weatherCond, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                              const SizedBox(height: 4),
-                              const Text('點擊更新', style: TextStyle(fontSize: 10, color: Colors.blue)),
                             ],
                           ),
                         ),
@@ -525,98 +449,89 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
                 const SizedBox(height: 10),
 
-                // 4. 時間軸行程列表
+                // 4. 即時連線行程列表 (使用 StreamBuilder)
                 Expanded(
-                  child: ReorderableListView.builder(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
-                    itemCount: _dailyActivities[_selectedDayIndex].length,
-                    onReorder: (oldIndex, newIndex) {
-                      setState(() {
-                        if (oldIndex < newIndex) newIndex -= 1;
-                        final item = _dailyActivities[_selectedDayIndex].removeAt(oldIndex);
-                        _dailyActivities[_selectedDayIndex].insert(newIndex, item);
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      final activity = _dailyActivities[_selectedDayIndex][index];
-                      return Container(
-                        key: ValueKey(activity.id),
-                        margin: const EdgeInsets.only(bottom: 0),
-                        child: IntrinsicHeight(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(
-                                width: 60,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 18),
-                                    Text(activity.time, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, fontFamily: 'Serif')),
-                                    Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _activitiesRef
+                      .where('dayIndex', isEqualTo: _selectedDayIndex)
+                      .snapshots(), // 監聽資料庫變化
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) return Center(child: Text('錯誤: ${snapshot.error}'));
+                      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+
+                      // 取得資料並轉為 List<Activity>
+                      List<Activity> activities = snapshot.data!.docs.map((doc) => Activity.fromFirestore(doc)).toList();
+                      
+                      // 在客戶端進行排序 (依照時間)
+                      activities.sort((a, b) => a.time.compareTo(b.time));
+
+                      if (activities.isEmpty) return const Center(child: Text('點擊 + 新增行程', style: TextStyle(color: Colors.grey)));
+
+                      return ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
+                        itemCount: activities.length,
+                        itemBuilder: (context, index) {
+                          final activity = activities[index];
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 0),
+                            child: IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  SizedBox(
+                                    width: 60,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 18),
+                                        Text(activity.time, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, fontFamily: 'Serif')),
+                                        Expanded(child: Container(margin: const EdgeInsets.only(left: 15, top: 8, bottom: 8), width: 1, color: Colors.grey.shade300)),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => _navigateToDetail(activity, false),
                                       child: Container(
-                                        margin: const EdgeInsets.only(left: 15, top: 8, bottom: 8),
-                                        width: 1,
-                                        color: Colors.grey.shade300,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () => _navigateToDetail(activity, _selectedDayIndex),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(4),
-                                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-                                      border: const Border(left: BorderSide(color: Color(0xFF8B2E2E), width: 4)),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(16.0),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        margin: const EdgeInsets.only(bottom: 16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(4),
+                                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+                                          border: const Border(left: BorderSide(color: Color(0xFF8B2E2E), width: 4)),
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16.0),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              _buildTag(activity.type),
-                                              if (activity.cost > 0)
-                                                Text('¥${activity.cost.toInt()}', style: const TextStyle(color: Color(0xFF8B2E2E), fontWeight: FontWeight.bold)),
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  _buildTag(activity.type),
+                                                  if (activity.cost > 0)
+                                                    Text('¥${activity.cost.toInt()}', style: const TextStyle(color: Color(0xFF8B2E2E), fontWeight: FontWeight.bold)),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(activity.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                                              if (activity.location.isNotEmpty) ...[
+                                                const SizedBox(height: 8),
+                                                const Divider(height: 1, color: Color(0xFFEEEEEE)),
+                                                const SizedBox(height: 8),
+                                                Row(children: [const Icon(Icons.location_on, size: 14, color: Colors.grey), const SizedBox(width: 4), Text(activity.location, style: const TextStyle(fontSize: 12, color: Colors.grey))]),
+                                              ],
                                             ],
                                           ),
-                                          const SizedBox(height: 8),
-                                          Text(activity.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                                          if (activity.imageUrls.isNotEmpty) ...[
-                                            const SizedBox(height: 8),
-                                            SizedBox(
-                                              height: 60,
-                                              child: ListView(
-                                                scrollDirection: Axis.horizontal,
-                                                children: activity.imageUrls.map((url) => Padding(
-                                                  padding: const EdgeInsets.only(right: 8),
-                                                  child: ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.network(url, width: 60, height: 60, fit: BoxFit.cover)),
-                                                )).toList(),
-                                              ),
-                                            ),
-                                          ],
-                                          if (activity.location.isNotEmpty) ...[
-                                            const SizedBox(height: 8),
-                                            const Divider(height: 1, color: Color(0xFFEEEEEE)),
-                                            const SizedBox(height: 8),
-                                            Row(children: [const Icon(Icons.location_on, size: 14, color: Colors.grey), const SizedBox(width: 4), Text(activity.location, style: const TextStyle(fontSize: 12, color: Colors.grey))]),
-                                          ],
-                                        ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
@@ -646,25 +561,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 color: Colors.white,
                 border: Border(top: BorderSide(color: Color(0xFFD4C5A9))),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('TOTAL EXPENSE (ALL DAYS)', style: TextStyle(fontSize: 10, letterSpacing: 1.5, color: Colors.grey)),
-                      Text('¥ ${_calculateTotalCost().toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontFamily: 'Serif', color: Color(0xFF8B2E2E))),
-                    ],
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Text('TODAY', style: TextStyle(fontSize: 10, letterSpacing: 1.5, color: Colors.grey)),
-                      Text('¥ ${_calculateDailyCost(_selectedDayIndex).toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontFamily: 'Serif', color: Colors.black87)),
-                    ],
-                  ),
-                ],
-              ),
+              child: _buildTotalCostDisplay(), // 改用 StreamBuilder 顯示
             ),
           ),
         ],
@@ -672,24 +569,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // 工具列小按鈕
   Widget _buildToolItem(IconData icon, String label, Color color, {VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(right: 16),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))],
-              ),
-              child: Icon(icon, color: color, size: 24),
-            ),
+            Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)]), child: Icon(icon, color: color, size: 24)),
             const SizedBox(height: 6),
             Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54)),
           ],
@@ -699,8 +586,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   Widget _buildTag(ActivityType type) {
-    String text = '';
-    Color color = Colors.grey;
+    String text = ''; Color color = Colors.grey;
     switch (type) {
       case ActivityType.sight: text = '景點'; color = Colors.teal; break;
       case ActivityType.food: text = '美食'; color = Colors.orange; break;
@@ -708,22 +594,19 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       case ActivityType.transport: text = '交通'; color = Colors.blueGrey; break;
       case ActivityType.other: text = '彈性'; color = Colors.purple; break;
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
-      child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 10)),
-    );
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)), child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 10)));
   }
 }
 
 // ---------------------------------------------------------------------------
-// 詳細資料與編輯頁面 (Detail & Edit Page)
+// 詳細資料與編輯頁面
 // ---------------------------------------------------------------------------
 class ActivityDetailPage extends StatefulWidget {
   final Activity activity;
   final Function(Activity) onSave;
+  final VoidCallback? onDelete; // 新增刪除功能
 
-  const ActivityDetailPage({super.key, required this.activity, required this.onSave});
+  const ActivityDetailPage({super.key, required this.activity, required this.onSave, this.onDelete});
 
   @override
   State<ActivityDetailPage> createState() => _ActivityDetailPageState();
@@ -762,86 +645,44 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
     Navigator.pop(context);
   }
 
-  void _addImage() {
-    final c = TextEditingController();
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('加入圖片 URL'),
-      content: TextField(controller: c, decoration: const InputDecoration(hintText: 'https://...')),
-      actions: [
-        TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text('取消')),
-        TextButton(onPressed: (){
-          if(c.text.isNotEmpty) setState(() => _images.add(c.text));
-          Navigator.pop(ctx);
-        }, child: const Text('加入')),
-      ],
-    ));
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('行程詳細資料'),
+        title: const Text('行程詳細'),
         backgroundColor: const Color(0xFF8B2E2E),
         foregroundColor: Colors.white,
         actions: [
+          if (widget.onDelete != null)
+            IconButton(icon: const Icon(Icons.delete), onPressed: () {
+              showDialog(context: context, builder: (c) => AlertDialog(
+                title: const Text('確定刪除?'),
+                actions: [
+                  TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('取消')),
+                  TextButton(onPressed: (){ 
+                    widget.onDelete!(); 
+                    Navigator.pop(c); // 關 Dialog
+                    Navigator.pop(context); // 回列表
+                  }, child: const Text('刪除', style: TextStyle(color: Colors.red))),
+                ],
+              ));
+            }),
           IconButton(onPressed: _save, icon: const Icon(Icons.check))
         ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 時間與標題
-            Row(
-              children: [
-                SizedBox(width: 80, child: TextField(controller: _timeC, decoration: const InputDecoration(labelText: '時間', border: OutlineInputBorder()))),
-                const SizedBox(width: 10),
-                Expanded(child: TextField(controller: _titleC, decoration: const InputDecoration(labelText: '標題', border: OutlineInputBorder()))),
-              ],
-            ),
+            Row(children: [SizedBox(width: 80, child: TextField(controller: _timeC, decoration: const InputDecoration(labelText: '時間', border: OutlineInputBorder()))), const SizedBox(width: 10), Expanded(child: TextField(controller: _titleC, decoration: const InputDecoration(labelText: '標題', border: OutlineInputBorder())))]),
             const SizedBox(height: 20),
-            
-            // 類別選擇
-            DropdownButtonFormField<ActivityType>(
-              value: _type,
-              decoration: const InputDecoration(labelText: '類別', border: OutlineInputBorder()),
-              items: ActivityType.values.map((t) => DropdownMenuItem(value: t, child: Text(t.toString().split('.').last))).toList(),
-              onChanged: (v) => setState(() => _type = v!),
-            ),
+            DropdownButtonFormField<ActivityType>(value: _type, decoration: const InputDecoration(labelText: '類別', border: OutlineInputBorder()), items: ActivityType.values.map((t) => DropdownMenuItem(value: t, child: Text(t.toString().split('.').last))).toList(), onChanged: (v) => setState(() => _type = v!)),
             const SizedBox(height: 20),
-
-            // 地點與花費
             TextField(controller: _locC, decoration: const InputDecoration(labelText: '地點', prefixIcon: Icon(Icons.map), border: OutlineInputBorder())),
             const SizedBox(height: 20),
-            TextField(controller: _costC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '花費 (円)', prefixIcon: Icon(Icons.currency_yen), border: OutlineInputBorder())),
+            TextField(controller: _costC, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '花費', prefixIcon: Icon(Icons.currency_yen), border: OutlineInputBorder())),
             const SizedBox(height: 20),
-
-            // 筆記 (多行)
-            TextField(controller: _noteC, maxLines: 5, decoration: const InputDecoration(labelText: '詳細筆記 / 備註', border: OutlineInputBorder(), alignLabelWithHint: true)),
-            const SizedBox(height: 20),
-
-            // 圖片區
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('圖片集', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              IconButton(onPressed: _addImage, icon: const Icon(Icons.add_a_photo, color: Colors.blue)),
-            ]),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: _images.map((url) => Stack(
-                children: [
-                  Image.network(url, width: 100, height: 100, fit: BoxFit.cover),
-                  Positioned(right: 0, top: 0, child: GestureDetector(
-                    onTap: () => setState(() => _images.remove(url)),
-                    child: Container(color: Colors.black54, child: const Icon(Icons.close, color: Colors.white, size: 16)),
-                  )),
-                ],
-              )).toList(),
-            ),
-            const SizedBox(height: 40),
+            TextField(controller: _noteC, maxLines: 5, decoration: const InputDecoration(labelText: '筆記', border: OutlineInputBorder())),
           ],
         ),
       ),
@@ -859,22 +700,10 @@ class PackingListPage extends StatefulWidget {
   State<PackingListPage> createState() => _PackingListPageState();
 }
 class _PackingListPageState extends State<PackingListPage> {
-  final Map<String, bool> _items = {'防滑好行走的鞋子': false, '防滑鞋墊': false, '防水噴霧': false, '洋蔥式穿搭': false, '防風保暖厚外套': false, '防水手套': false, '觸控手套': false, '毛帽': false, '圍巾': false, '太陽眼鏡': false, '護唇膏 & 乳液': false, '暖暖包': false, '行動電源': false, '小毛巾': false, '個人藥品': false, 'WIFI機': false};
-  final TextEditingController _itemController = TextEditingController();
+  final Map<String, bool> _items = {'防滑鞋': false, '暖暖包': false, '護照': false};
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('雪祭必要準備清單'), backgroundColor: Colors.lightBlue),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(children: [Expanded(child: TextField(controller: _itemController, decoration: const InputDecoration(labelText: '自行輸入', border: OutlineInputBorder()))), const SizedBox(width: 8), ElevatedButton(onPressed: (){if(_itemController.text.isNotEmpty) setState(() {_items[_itemController.text]=false;_itemController.clear();});}, child: const Text('加入'))]),
-          ),
-          Expanded(child: ListView(children: _items.keys.map((k) => CheckboxListTile(title: Text(k), value: _items[k], onChanged: (v) => setState(() => _items[k] = v!))).toList())),
-        ],
-      ),
-    );
+    return Scaffold(appBar: AppBar(title: const Text('清單')), body: ListView(children: _items.keys.map((k) => CheckboxListTile(title: Text(k), value: _items[k], onChanged: (v) => setState(() => _items[k] = v!))).toList()));
   }
 }
 
@@ -884,19 +713,10 @@ class ShoppingListPage extends StatefulWidget {
   State<ShoppingListPage> createState() => _ShoppingListPageState();
 }
 class _ShoppingListPageState extends State<ShoppingListPage> {
-  final List<String> _list = ['仙台牛舌', '萩之月', '毛豆泥麻糬', '會津清酒', 'AEON電器', '藥妝'];
-  final TextEditingController _c = TextEditingController();
+  final List<String> _list = ['牛舌', '清酒'];
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('必買清單'), backgroundColor: Colors.pink),
-      body: Column(
-        children: [
-          Padding(padding: const EdgeInsets.all(12.0), child: Row(children: [Expanded(child: TextField(controller: _c, decoration: const InputDecoration(labelText: '輸入物品', border: OutlineInputBorder()))), IconButton(icon: const Icon(Icons.add_circle, color: Colors.pink), onPressed: (){if(_c.text.isNotEmpty) setState(() {_list.add(_c.text);_c.clear();});})])),
-          Expanded(child: ListView.builder(itemCount: _list.length, itemBuilder: (c, i) => ListTile(title: Text(_list[i]), trailing: IconButton(icon: const Icon(Icons.delete), onPressed: () => setState(() => _list.removeAt(i)))))),
-        ],
-      ),
-    );
+    return Scaffold(appBar: AppBar(title: const Text('必買')), body: ListView.builder(itemCount: _list.length, itemBuilder: (c, i) => ListTile(title: Text(_list[i]))));
   }
 }
 
@@ -904,48 +724,14 @@ class TranslatorPage extends StatelessWidget {
   const TranslatorPage({super.key});
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('翻譯官'), backgroundColor: Colors.blue),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: const [
-          Card(child: ListTile(title: Text('お湯をください'), subtitle: Text('請給我溫水'))),
-          Card(child: ListTile(title: Text('これはいくらですか？'), subtitle: Text('這個多少錢?'))),
-          Card(child: ListTile(title: Text('トイレはどこですか？'), subtitle: Text('廁所在哪裡?'))),
-        ],
-      ),
-    );
+    return Scaffold(appBar: AppBar(title: const Text('翻譯')), body: const Center(child: Text('翻譯功能')));
   }
 }
 
 class MapListPage extends StatelessWidget {
-  final List<List<Activity>> allActivities;
-  const MapListPage({super.key, required this.allActivities});
-
+  const MapListPage({super.key});
   @override
   Widget build(BuildContext context) {
-    List<Activity> locations = [];
-    for (var list in allActivities) {
-      locations.addAll(list.where((a) => a.location.isNotEmpty));
-    }
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('行程地圖列表'), backgroundColor: Colors.green),
-      body: ListView.builder(
-        itemCount: locations.length,
-        itemBuilder: (context, index) {
-          final item = locations[index];
-          return ListTile(
-            leading: const Icon(Icons.place, color: Colors.red),
-            title: Text(item.title),
-            subtitle: Text(item.location),
-            trailing: const Icon(Icons.copy),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已複製地點：${item.location}')));
-            },
-          );
-        },
-      ),
-    );
+    return Scaffold(appBar: AppBar(title: const Text('地圖')), body: const Center(child: Text('地圖功能 (資料已雲端化)')));
   }
 }
