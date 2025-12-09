@@ -24,11 +24,9 @@ const firebaseOptions = FirebaseOptions(
 );
 
 // ---------------------------------------------------------------------------
-// 2. API Keys 設定區
+// 2. API Keys
 // ---------------------------------------------------------------------------
 const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc";
-
-// ★★★ 已填入您的 AirLabs API Key ★★★
 const String _flightApiKey = "73d5e5ca-a0eb-462d-8a91-62e6a7657cb9";
 
 void main() async {
@@ -54,10 +52,10 @@ class FlightInfo {
   String toCode;
   String toCity;
   String date;
-  String schedDep; // 表定起飛
-  String schedArr; // 表定抵達
-  String estDep; // 預計起飛 (即時)
-  String estArr; // 預計抵達 (即時)
+  String schedDep;
+  String schedArr;
+  String estDep;
+  String estArr;
   String terminal;
   String gate;
   String baggage;
@@ -80,9 +78,7 @@ class FlightInfo {
     required this.status,
   });
 
-  // 從 API JSON 轉換
   factory FlightInfo.fromJson(Map<String, dynamic> json) {
-    // 簡單處理時間字串
     String formatTime(String? fullTime) {
       if (fullTime == null || fullTime.length < 16) return '--:--';
       return fullTime.substring(11, 16);
@@ -91,7 +87,7 @@ class FlightInfo {
     return FlightInfo(
       flightNo: json['flight_iata'] ?? 'JX???',
       fromCode: json['dep_iata'] ?? '',
-      fromCity: 'Taoyuan', // 簡化處理
+      fromCity: 'Taoyuan',
       toCode: json['arr_iata'] ?? '',
       toCity: 'Sendai',
       date: json['dep_time']?.toString().substring(5, 10) ?? '',
@@ -205,7 +201,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
 
-  // 背景圖
   final String _bgImage =
       'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg';
 
@@ -222,7 +217,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
 
-  // --- 航班資料 (預設靜態值，若API失敗則顯示此) ---
+  // --- 航班資料 (預設靜態值 - 優化去程資料顯示) ---
+  // 若 API 抓不到 2026 年資料，就會顯示這些完整的靜態資料
   FlightInfo _outboundFlight = FlightInfo(
     flightNo: 'JX862',
     fromCode: 'TPE',
@@ -232,10 +228,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     date: '16 JAN',
     schedDep: '11:50',
     schedArr: '16:00',
-    terminal: '2',
-    gate: 'A5',
+    terminal: '1',
+    gate: 'B5',
     baggage: '--',
-    status: 'Scheduled',
+    status: 'Scheduled', // 手動補齊資訊
   );
 
   FlightInfo _inboundFlight = FlightInfo(
@@ -258,7 +254,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.initState();
     _updateTime();
     _fetchRealWeather();
-    _updateFlightStatus(); // 嘗試抓取即時航班
+    _updateFlightStatus();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTime();
@@ -281,15 +277,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     });
   }
 
-  // 抓取真實航班資料 (AirLabs API)
   Future<void> _updateFlightStatus() async {
     if (_flightApiKey.isEmpty) return;
-
-    // 抓去程
     await _fetchSingleFlight('JX862', (data) {
       setState(() => _outboundFlight = data);
     });
-    // 抓回程
     await _fetchSingleFlight('JX863', (data) {
       setState(() => _inboundFlight = data);
     });
@@ -423,17 +415,66 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     Navigator.push(context, MaterialPageRoute(builder: (context) => page));
   }
 
+  // --- 匯率彈窗 (即時更新版) ---
   void _showCurrencyDialog() {
+    // 預設值 (避免 API 失敗時顯示 0)
     double rate = 0.215;
     double jpy = 0;
     double twd = 0;
+    bool isLoading = true;
+
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            // 取得即時匯率的函式
+            Future<void> fetchRate() async {
+              try {
+                // 使用 ExchangeRate-API (免費、無須 Key、更新頻率高)
+                final url = Uri.parse(
+                  'https://api.exchangerate-api.com/v4/latest/JPY',
+                );
+                final response = await http.get(url);
+                if (response.statusCode == 200) {
+                  final data = json.decode(response.body);
+                  if (data['rates'] != null && data['rates']['TWD'] != null) {
+                    if (context.mounted) {
+                      setState(() {
+                        rate = (data['rates']['TWD']).toDouble();
+                        isLoading = false;
+                        // 更新計算結果
+                        twd = jpy * rate;
+                      });
+                    }
+                  }
+                }
+              } catch (e) {
+                print('Currency API Error: $e');
+                setState(() => isLoading = false);
+              }
+            }
+
+            // 第一次打開時執行
+            if (isLoading) fetchRate();
+
             return AlertDialog(
-              title: const Text('即時匯率試算'),
+              title: Row(
+                children: [
+                  const Icon(Icons.currency_exchange, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  const Text('即時匯率試算'),
+                  if (isLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 10),
+                      child: SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                ],
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -448,7 +489,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       twd = jpy * rate;
                     }),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 15),
                   Text(
                     '約 NT\$ ${twd.toStringAsFixed(0)}',
                     style: const TextStyle(
@@ -457,8 +498,23 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       color: Color(0xFF9E8B6E),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '目前匯率: 1 JPY ≈ ${rate.toStringAsFixed(4)} TWD',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const Text(
+                    '(資料來源: 國際即時匯率)',
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
                 ],
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('關閉'),
+                ),
+              ],
             );
           },
         );
@@ -473,7 +529,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- Widget 構建: 機票卡片 ---
   Widget _buildFlightCarousel() {
     return Container(
       height: 160,
@@ -712,7 +767,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- 可隱藏的工具欄位 ---
   Widget _buildExpandableTools() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -1555,7 +1609,6 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   }
 }
 
-// 行李清單 (Tab分類 + 雪國必備 + 自行輸入)
 class PackingListPage extends StatefulWidget {
   const PackingListPage({super.key});
   @override
@@ -1563,7 +1616,6 @@ class PackingListPage extends StatefulWidget {
 }
 
 class _PackingListPageState extends State<PackingListPage> {
-  // 預設資料 (狀態內管理，以便新增)
   final Map<String, List<String>> _categories = {
     '通用': ['護照', '日幣/信用卡', '網卡/漫遊', '充電器/行動電源', '盥洗用品', '常備藥品'],
     '雪國': [
@@ -1620,7 +1672,6 @@ class _PackingListPageState extends State<PackingListPage> {
     List<String> items = _categories[category] ?? [];
     return Column(
       children: [
-        // 新增物品區
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Row(
@@ -1745,7 +1796,7 @@ class _TranslatorPageState extends State<TranslatorPage> {
   final List<Map<String, String>> _list = [
     {'jp': 'トイレはどこですか？', 'zh': '廁所在哪裡？'},
     {'jp': 'これください', 'zh': '我要這個'},
-    {'jp': 'お会計お願いします', 'zh': '麻煩結帳'},
+    {'jp': 'チェックアウトを手伝ってください。', 'zh': '麻煩幫我結帳'},
   ];
   final TextEditingController _j = TextEditingController(),
       _z = TextEditingController();
@@ -1755,7 +1806,6 @@ class _TranslatorPageState extends State<TranslatorPage> {
       'https://translate.google.com/?sl=ja&tl=zh-TW&text=${Uri.encodeComponent(text)}&op=translate',
     );
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      // open in webview if app fails
       html.window.open(url.toString(), '_blank');
     }
   }
