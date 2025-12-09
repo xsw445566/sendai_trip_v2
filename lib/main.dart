@@ -43,6 +43,39 @@ void main() async {
 // ---------------------------------------------------------------------------
 // 資料模型
 // ---------------------------------------------------------------------------
+
+// 航班資料模型
+class FlightInfo {
+  final String flightNo;
+  final String fromCode;
+  final String fromCity;
+  final String toCode;
+  final String toCity;
+  final String date;
+  final String schedDep; // 表定起飛
+  final String schedArr; // 表定抵達
+  final String terminal;
+  final String gate;
+  final String baggage; // 行李轉盤
+  final String status; // 狀態
+
+  FlightInfo({
+    required this.flightNo,
+    required this.fromCode,
+    required this.fromCity,
+    required this.toCode,
+    required this.toCity,
+    required this.date,
+    required this.schedDep,
+    required this.schedArr,
+    required this.terminal,
+    required this.gate,
+    required this.baggage,
+    required this.status,
+  });
+}
+
+// 行程資料模型
 enum ActivityType { sight, food, shop, transport, other }
 
 class Activity {
@@ -142,7 +175,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
 
-  // 修改後的背景圖：仙台藏王樹冰
+  // 背景圖：仙台藏王樹冰
   final String _bgImage =
       'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg';
 
@@ -159,6 +192,37 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
+
+  // --- 機票資料設定 ---
+  final FlightInfo _outboundFlight = FlightInfo(
+    flightNo: 'JX862',
+    fromCode: 'TPE',
+    fromCity: 'Taoyuan',
+    toCode: 'SDJ',
+    toCity: 'Sendai',
+    date: '16 JAN',
+    schedDep: '11:50',
+    schedArr: '16:00',
+    terminal: '1',
+    gate: 'A5',
+    baggage: '--',
+    status: 'On Time',
+  );
+
+  final FlightInfo _inboundFlight = FlightInfo(
+    flightNo: 'JX863',
+    fromCode: 'SDJ',
+    fromCity: 'Sendai',
+    toCode: 'TPE',
+    toCity: 'Taoyuan',
+    date: '20 JAN',
+    schedDep: '17:30',
+    schedArr: '20:40',
+    terminal: 'Intl',
+    gate: '3',
+    baggage: '06',
+    status: 'Scheduled',
+  );
 
   @override
   void initState() {
@@ -293,7 +357,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   void _showCurrencyDialog() {
-    double rate = 0.215;
+    double rate = 0.215; // 假設匯率
     double jpy = 0;
     double twd = 0;
     showDialog(
@@ -342,166 +406,274 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- Widget 構建 ---
-
-  // 機票卡片 (包含去程與回程)
-  Widget _buildBoardingPass() {
+  // --- Widget 構建: 機票卡片 (左右滑動) ---
+  Widget _buildFlightCarousel() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+      height: 160, // 高度適中
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      child: PageView(
+        controller: PageController(viewportFraction: 0.92), // 露出左右邊緣
+        children: [
+          _buildCompactFlightCard(_outboundFlight, '去程'),
+          _buildCompactFlightCard(_inboundFlight, '回程'),
         ],
       ),
-      child: Column(
-        children: [
-          // 去程
-          _buildFlightLeg(
-            fromCode: 'TPE',
-            fromCity: 'Taoyuan',
-            toCode: 'SDJ',
-            toCity: 'Sendai',
-            flightNum: 'JX862',
-            date: '16 JAN',
-            time: '11:50',
-            gate: 'A5',
-          ),
+    );
+  }
 
-          // 分隔線
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: List.generate(
-                40,
-                (index) => Expanded(
-                  child: Container(
-                    color: index % 2 == 0
-                        ? Colors.transparent
-                        : Colors.grey[300],
-                    height: 1,
-                  ),
+  Widget _buildCompactFlightCard(FlightInfo info, String label) {
+    return GestureDetector(
+      onTap: () => _showFlightDetails(info),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 5),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // 頂部標籤
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9E8B6E).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$label • ${info.date}',
+                style: const TextStyle(
+                  color: Color(0xFF9E8B6E),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
                 ),
               ),
             ),
-          ),
-
-          // 回程 (新增部分)
-          _buildFlightLeg(
-            fromCode: 'SDJ',
-            fromCity: 'Sendai',
-            toCode: 'TPE',
-            toCity: 'Taoyuan',
-            flightNum: 'JX863',
-            date: '20 JAN',
-            time: '17:30', // 假設時間，可自行修改
-            gate: '--',
-          ),
-        ],
+            const SizedBox(height: 12),
+            // 航點與時間
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildAirportCode(info.fromCode, info.schedDep),
+                Column(
+                  children: [
+                    Icon(
+                      Icons.flight_takeoff,
+                      color: Colors.grey[400],
+                      size: 20,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      info.flightNo,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+                _buildAirportCode(info.toCode, info.schedArr),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildFlightLeg({
-    required String fromCode,
-    required String fromCity,
-    required String toCode,
-    required String toCity,
-    required String flightNum,
-    required String date,
-    required String time,
-    required String gate,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    fromCode,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  Text(
-                    fromCity,
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-              const Icon(Icons.flight, color: Color(0xFF9E8B6E), size: 20),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    toCode,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  Text(
-                    toCity,
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildTicketInfo('FLIGHT', flightNum),
-              _buildTicketInfo('DATE', date),
-              _buildTicketInfo('TIME', time),
-              _buildTicketInfo('GATE', gate),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTicketInfo(String label, String value) {
+  Widget _buildAirportCode(String code, String time) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label,
-          style: const TextStyle(
-            fontSize: 8,
-            color: Colors.grey,
-            letterSpacing: 1,
-          ),
+          code,
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF2C2C2C),
-          ),
-        ),
+        Text(time, style: const TextStyle(fontSize: 16, color: Colors.grey)),
       ],
     );
   }
 
-  // 可隱藏的工具欄位
+  // --- 點擊後彈出的詳細資料視窗 (模擬 API) ---
+  void _showFlightDetails(FlightInfo info) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.8,
+        builder: (_, controller) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+          ),
+          child: FutureBuilder(
+            // 模擬 API 請求延遲 1.5 秒
+            future: Future.delayed(const Duration(milliseconds: 1500)),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: Color(0xFF9E8B6E)),
+                      SizedBox(height: 15),
+                      Text("正在同步航班資訊...", style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                );
+              }
+              // 載入完成顯示詳細資料
+              return ListView(
+                controller: controller,
+                padding: const EdgeInsets.all(25),
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Flight Details",
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          info.status.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "${info.fromCity} ➔ ${info.toCity}",
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+
+                  // 詳細資訊網格
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    childAspectRatio: 2.5,
+                    mainAxisSpacing: 15,
+                    crossAxisSpacing: 15,
+                    children: [
+                      _buildDetailItem(
+                        Icons.access_time,
+                        "起飛時間",
+                        info.schedDep,
+                      ),
+                      _buildDetailItem(
+                        Icons.access_time_filled,
+                        "抵達時間",
+                        info.schedArr,
+                      ),
+                      _buildDetailItem(
+                        Icons.domain,
+                        "航廈 (Terminal)",
+                        info.terminal,
+                      ),
+                      _buildDetailItem(
+                        Icons.meeting_room,
+                        "登機門 (Gate)",
+                        info.gate,
+                      ),
+                      _buildDetailItem(Icons.luggage, "行李轉盤", info.baggage),
+                      _buildDetailItem(
+                        Icons.airplane_ticket,
+                        "航班代號",
+                        info.flightNo,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 30),
+                  const Divider(),
+                  const SizedBox(height: 10),
+                  Text(
+                    "※ 資料來自模擬即時系統，實際資訊請以機場公告為準。",
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailItem(IconData icon, String title, String value) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFF9E8B6E), size: 28),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- 可隱藏的工具欄位 ---
   Widget _buildExpandableTools() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -759,12 +931,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                 ),
 
-                // 2. 機票卡片 (包含來回)
-                SizedBox(
-                  height: 220, // 稍微增高以容納回程
-                  child: SingleChildScrollView(child: _buildBoardingPass()),
-                ),
+                // 2. 機票卡片 (滑動式 Carousel)
+                _buildFlightCarousel(),
 
+                const SizedBox(height: 20), // 增加間距，解決太擠的問題
                 // 3. 天數切換指示器
                 SizedBox(
                   height: 40,
