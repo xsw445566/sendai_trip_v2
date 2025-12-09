@@ -72,7 +72,7 @@ class ElegantItineraryPage extends StatefulWidget {
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   int _selectedDayIndex = 0;
-  String _bgImage = 'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80'; // 預設背景
+  String _bgImage = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTVcp6dGHNNVXkYmgcqQbKKcmJ75hVlVmaxtA&s'; // 預設背景
   Timer? _timer;
   String _currentTime = '';
   
