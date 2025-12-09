@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math';
+import 'dart:convert'; // 用於解析 JSON
+import 'package:http/http.dart' as http; // 用於發送網路請求
 
 void main() {
   runApp(const TohokuTripApp());
@@ -20,7 +22,7 @@ class Activity {
   String notes;
   double cost;
   ActivityType type;
-  List<String> imageUrls; // 新增：儲存圖片網址的列表
+  List<String> imageUrls;
 
   Activity({
     required this.id,
@@ -74,15 +76,20 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   Timer? _timer;
   String _currentTime = '';
   
-  // 天氣資料連結
-  final String _weatherUrl = "https://weather.com/zh-TW/weather/today/l/46f6ead6d0822254bd95746ea4d837b07ce90579820dd8f6906d46ca8b28eae7";
+  // ---------------------------------------------------------------------------
+  // 天氣相關設定 (OpenWeatherMap)
+  // ---------------------------------------------------------------------------
+  // ★★★ 請將下面這行換成你的 API Key ★★★
+  final String _apiKey = "956b9c1aeed5b382fd6aa09218369bbc"; 
+  final String _city = "Sendai"; // 地點：仙台
   
-  // 模擬動態天氣數據
-  String _weatherTemp = "2°";
-  String _weatherCond = "多雲時晴";
-  IconData _weatherIcon = Icons.cloud;
+  String _weatherTemp = "--°";   // 溫度
+  String _weatherCond = "載入中..."; // 狀況
+  IconData _weatherIcon = Icons.cloud_download; // 圖示
 
+  // ---------------------------------------------------------------------------
   // 核心資料：5天的行程
+  // ---------------------------------------------------------------------------
   final List<List<Activity>> _dailyActivities = [
     // Day 1
     [
@@ -123,10 +130,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   void initState() {
     super.initState();
     _updateTime();
+    _fetchRealWeather(); // 初始化時抓取天氣
+
+    // 設定計時器：每秒更新時間，每30分鐘更新天氣
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTime();
-      // 每分鐘微調模擬溫度，增加動態感
-      if (DateTime.now().second == 0) _simulateWeatherChange();
+      if (t.tick % 1800 == 0) {
+        _fetchRealWeather();
+      }
     });
   }
 
@@ -143,13 +154,65 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     });
   }
 
-  void _simulateWeatherChange() {
-    final random = Random();
-    int temp = -2 + random.nextInt(3); // -2 到 0 度之間浮動
-    setState(() {
-      _weatherTemp = "$temp°";
-    });
+  // ---------------------------------------------------------------------------
+  // 天氣功能實作
+  // ---------------------------------------------------------------------------
+  
+  Future<void> _fetchRealWeather() async {
+    // 檢查 API Key 是否已設定
+    if (_apiKey.contains("請將你的API_KEY")) {
+      setState(() {
+        _weatherCond = "需設定Key";
+        _weatherTemp = "?";
+      });
+      return;
+    }
+
+    final url = Uri.parse(
+        'https://api.openweathermap.org/data/2.5/weather?q=$_city&appid=$_apiKey&units=metric&lang=zh_tw');
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          double temp = data['main']['temp'];
+          _weatherTemp = "${temp.round()}°";
+          _weatherCond = data['weather'][0]['description'];
+          String iconCode = data['weather'][0]['icon'];
+          _weatherIcon = _mapWeatherIcon(iconCode);
+        });
+      } else {
+        print("Weather API Error: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("Error fetching weather: $e");
+      setState(() {
+        _weatherCond = "連線失敗";
+      });
+    }
   }
+
+  IconData _mapWeatherIcon(String code) {
+    switch (code) {
+      case '01d': return Icons.wb_sunny;
+      case '01n': return Icons.nightlight_round;
+      case '02d': case '02n': return Icons.wb_cloudy;
+      case '03d': case '03n': return Icons.cloud;
+      case '04d': case '04n': return Icons.cloud_queue;
+      case '09d': case '09n': return Icons.grain;
+      case '10d': case '10n': return Icons.umbrella;
+      case '11d': case '11n': return Icons.flash_on;
+      case '13d': case '13n': return Icons.ac_unit;
+      case '50d': case '50n': return Icons.waves;
+      default: return Icons.cloud;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 計算邏輯
+  // ---------------------------------------------------------------------------
 
   double _calculateTotalCost() {
     double total = 0;
@@ -303,26 +366,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       title: '新行程',
       type: ActivityType.sight,
     );
-    // 直接跳轉到詳細頁面進行編輯
     _navigateToDetail(newActivity, dayIndex);
-    // 注意：這裡先假設用戶會儲存，若取消則需要處理移除邏輯，為求簡化，我們先加入列表
     setState(() {
       _dailyActivities[dayIndex].add(newActivity);
       _dailyActivities[dayIndex].sort((a, b) => a.time.compareTo(b.time));
     });
   }
 
-  String _getTypeName(ActivityType type) {
-    switch (type) {
-      case ActivityType.sight: return '景點';
-      case ActivityType.food: return '美食';
-      case ActivityType.shop: return '購物';
-      case ActivityType.transport: return '交通';
-      case ActivityType.other: return '其他';
-    }
-  }
-
-  // 導航功能 (修復打不開的問題)
+  // 導航功能
   void _handleToolTap(String label) {
     Widget page;
     switch (label) {
@@ -389,18 +440,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           const Row(children: [Icon(Icons.location_on, size: 14, color: Colors.grey), SizedBox(width: 4), Text('Miyagi, Japan', style: TextStyle(color: Colors.grey))]),
                         ],
                       ),
-                      // 動態天氣卡
+                      
+                      // ★★★ 天氣卡片區 (點擊可重新整理) ★★★
                       GestureDetector(
                         onTap: () {
-                          showDialog(context: context, builder: (context) => AlertDialog(
-                            title: const Text('詳細天氣報告'),
-                            content: Column(mainAxisSize: MainAxisSize.min, children: [
-                              const Text('資料來源: Weather.com'),
-                              const SizedBox(height: 10),
-                              SelectableText(_weatherUrl, style: const TextStyle(color: Colors.blue)),
-                            ]),
-                            actions: [TextButton(onPressed: ()=>Navigator.pop(context), child: const Text('關閉'))],
-                          ));
+                          _fetchRealWeather();
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('更新天氣資訊中...'), duration: Duration(seconds: 1)));
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -412,18 +457,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           ),
                           child: Column(
                             children: [
-                              // 模擬呼吸燈效果
-                              TweenAnimationBuilder(
-                                tween: Tween<double>(begin: 0.8, end: 1.0),
-                                duration: const Duration(seconds: 1),
-                                builder: (context, value, child) => Transform.scale(scale: value, child: Icon(_weatherIcon, color: Colors.amber, size: 32)),
-                                onEnd: () {}, // 可設循環
-                              ),
+                              Icon(_weatherIcon, color: Colors.amber, size: 32),
                               const SizedBox(height: 4),
                               Text(_weatherTemp, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, fontFamily: 'Serif')),
                               Text(_weatherCond, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                               const SizedBox(height: 4),
-                              const Text('詳細 >', style: TextStyle(fontSize: 10, color: Colors.blue)),
+                              const Text('點擊更新', style: TextStyle(fontSize: 10, color: Colors.blue)),
                             ],
                           ),
                         ),
@@ -432,7 +471,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                 ),
 
-                // 2. 工具列 (修復點擊)
+                // 2. 工具列
                 SizedBox(
                   height: 90,
                   child: ListView(
@@ -486,7 +525,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
                 const SizedBox(height: 10),
 
-                // 4. 時間軸行程列表 (點擊進入詳細頁)
+                // 4. 時間軸行程列表
                 Expanded(
                   child: ReorderableListView.builder(
                     padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
