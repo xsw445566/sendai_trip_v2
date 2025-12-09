@@ -9,7 +9,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:intl/intl.dart'; // 需要在 pubspec.yaml 加入 intl: ^0.18.0
+import 'package:intl/intl.dart';
 
 // ---------------------------------------------------------------------------
 // 1. Firebase 設定
@@ -115,7 +115,7 @@ class TohokuTripApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       navigatorObservers: [observer],
       theme: ThemeData(
-        // 星宇風格配色：大地金、深灰、米白
+        // 星宇風格配色
         primaryColor: const Color(0xFF9E8B6E),
         scaffoldBackgroundColor: const Color(0xFFF5F5F5),
         colorScheme: ColorScheme.fromSeed(
@@ -139,13 +139,12 @@ class ElegantItineraryPage extends StatefulWidget {
 }
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
-  // PageController 用於翻頁控制
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
 
-  // 背景圖
+  // 修改後的背景圖：仙台藏王樹冰
   final String _bgImage =
-      'https://images.unsplash.com/photo-1542051841857-5f90071e7989?q=80';
+      'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg';
 
   Timer? _timer;
   String _currentTime = '';
@@ -154,6 +153,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   String _weatherTemp = "--°";
   String _weatherCond = "Loading";
   IconData _weatherIcon = Icons.cloud;
+
+  // 控制工具列展開/收合
+  bool _isToolsExpanded = false;
 
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
@@ -263,7 +265,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- 工具按鈕處理 ---
   void _handleToolTap(String label) {
     Widget page;
     switch (label) {
@@ -281,10 +282,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         break;
       case '匯率':
         _showCurrencyDialog();
-        return; // 彈窗不跳頁
+        return;
       case '分帳':
         _showSplitBillDialog();
-        return; // 彈窗不跳頁
+        return;
       default:
         return;
     }
@@ -343,7 +344,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   // --- Widget 構建 ---
 
-  // 星宇風格機票卡片
+  // 機票卡片 (包含去程與回程)
   Widget _buildBoardingPass() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -360,81 +361,115 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       ),
       child: Column(
         children: [
-          // 上半部：飛行資訊
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'TPE',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    Text(
-                      'Taoyuan',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-                const Icon(
-                  Icons.flight_takeoff,
-                  color: Color(0xFF9E8B6E),
-                  size: 28,
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Text(
-                      'SDJ',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    Text(
-                      'Sendai',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+          // 去程
+          _buildFlightLeg(
+            fromCode: 'TPE',
+            fromCity: 'Taoyuan',
+            toCode: 'SDJ',
+            toCity: 'Sendai',
+            flightNum: 'JX862',
+            date: '16 JAN',
+            time: '11:50',
+            gate: 'A5',
           ),
-          // 虛線分隔
-          Row(
-            children: List.generate(
-              30,
-              (index) => Expanded(
-                child: Container(
-                  color: index % 2 == 0 ? Colors.transparent : Colors.grey[300],
-                  height: 1,
+
+          // 分隔線
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: List.generate(
+                40,
+                (index) => Expanded(
+                  child: Container(
+                    color: index % 2 == 0
+                        ? Colors.transparent
+                        : Colors.grey[300],
+                    height: 1,
+                  ),
                 ),
               ),
             ),
           ),
-          // 下半部：詳細資訊
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 12.0,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildTicketInfo('FLIGHT', 'JX862'),
-                _buildTicketInfo('DATE', '16 JAN'),
-                _buildTicketInfo('TIME', '11:50'),
-                _buildTicketInfo('GATE', 'A5'),
-              ],
-            ),
+
+          // 回程 (新增部分)
+          _buildFlightLeg(
+            fromCode: 'SDJ',
+            fromCity: 'Sendai',
+            toCode: 'TPE',
+            toCity: 'Taoyuan',
+            flightNum: 'JX863',
+            date: '20 JAN',
+            time: '17:30', // 假設時間，可自行修改
+            gate: '--',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFlightLeg({
+    required String fromCode,
+    required String fromCity,
+    required String toCode,
+    required String toCity,
+    required String flightNum,
+    required String date,
+    required String time,
+    required String gate,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fromCode,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  Text(
+                    fromCity,
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+              const Icon(Icons.flight, color: Color(0xFF9E8B6E), size: 20),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    toCode,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  Text(
+                    toCity,
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildTicketInfo('FLIGHT', flightNum),
+              _buildTicketInfo('DATE', date),
+              _buildTicketInfo('TIME', time),
+              _buildTicketInfo('GATE', gate),
+            ],
           ),
         ],
       ),
@@ -448,7 +483,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         Text(
           label,
           style: const TextStyle(
-            fontSize: 10,
+            fontSize: 8,
             color: Colors.grey,
             letterSpacing: 1,
           ),
@@ -457,7 +492,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         Text(
           value,
           style: const TextStyle(
-            fontSize: 16,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF2C2C2C),
           ),
@@ -466,10 +501,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // 底部工具箱與總花費
-  Widget _buildToolsSection() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 30),
+  // 可隱藏的工具欄位
+  Widget _buildExpandableTools() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      height: _isToolsExpanded ? 240 : 60, // 收合時只顯示 header
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: const BorderRadius.only(
@@ -478,44 +515,78 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(0.1),
             blurRadius: 10,
             offset: const Offset(0, -4),
           ),
         ],
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 8, bottom: 12),
-            child: Text(
-              'TRAVEL TOOLS',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-                color: Colors.grey,
+          // 點擊區域：標題與箭頭
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _isToolsExpanded = !_isToolsExpanded;
+              });
+            },
+            behavior: HitTestBehavior.translucent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'TRAVEL TOOLS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  Icon(
+                    _isToolsExpanded
+                        ? Icons.keyboard_arrow_down
+                        : Icons.keyboard_arrow_up,
+                    color: const Color(0xFF9E8B6E),
+                  ),
+                ],
               ),
             ),
           ),
-          SizedBox(
-            height: 100, // 固定高度
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                // 第一張卡片：總花費
-                _buildTotalCostCard(),
-                const SizedBox(width: 12),
-                // 工具按鈕
-                _buildToolIcon(Icons.shopping_bag, '必買', Colors.pink),
-                _buildToolIcon(Icons.translate, '翻譯', Colors.purple),
-                _buildToolIcon(Icons.map, '地圖', Colors.green),
-                _buildToolIcon(Icons.luggage, '行李', Colors.blue),
-                _buildToolIcon(Icons.currency_exchange, '匯率', Colors.orange),
-                _buildToolIcon(Icons.diversity_3, '分帳', Colors.teal),
-              ],
+          // 內容區域
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      height: 120,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _buildTotalCostCard(),
+                          const SizedBox(width: 12),
+                          _buildToolIcon(Icons.luggage, '行李', Colors.blue),
+                          _buildToolIcon(Icons.shopping_bag, '必買', Colors.pink),
+                          _buildToolIcon(Icons.diversity_3, '分帳', Colors.teal),
+                          _buildToolIcon(
+                            Icons.currency_exchange,
+                            '匯率',
+                            Colors.orange,
+                          ),
+                          _buildToolIcon(Icons.translate, '翻譯', Colors.purple),
+                          _buildToolIcon(Icons.map, '地圖', Colors.green),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -535,7 +606,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           }
         }
         return Container(
-          width: 160,
+          width: 140,
+          margin: const EdgeInsets.only(right: 12),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
@@ -562,7 +634,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 '¥${NumberFormat('#,###').format(total)}',
                 style: const TextStyle(
                   color: Color(0xFFD4C5A9),
-                  fontSize: 20,
+                  fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -577,7 +649,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     return GestureDetector(
       onTap: () => _handleToolTap(label),
       child: Container(
-        width: 70,
+        width: 65,
         margin: const EdgeInsets.only(right: 12),
         decoration: BoxDecoration(
           color: Colors.grey[50],
@@ -587,7 +659,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 28),
+            Icon(icon, color: color, size: 24),
             const SizedBox(height: 4),
             Text(
               label,
@@ -687,8 +759,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                 ),
 
-                // 2. 機票卡片 (裝飾用)
-                _buildBoardingPass(),
+                // 2. 機票卡片 (包含來回)
+                SizedBox(
+                  height: 220, // 稍微增高以容納回程
+                  child: SingleChildScrollView(child: _buildBoardingPass()),
+                ),
 
                 // 3. 天數切換指示器
                 SizedBox(
@@ -738,29 +813,41 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
                 const SizedBox(height: 10),
 
-                // 4. 翻頁式行程列表 (PageView)
+                // 4. 行程列表 (留空間給底部工具列)
                 Expanded(
-                  child: PageView.builder(
-                    controller: _pageController,
-                    itemCount: 5,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _selectedDayIndex = index;
-                      });
-                    },
-                    itemBuilder: (context, index) {
-                      return DayItineraryWidget(
-                        dayIndex: index,
-                        onAddPressed: _addNewActivity,
-                      );
-                    },
+                  child: Stack(
+                    children: [
+                      PageView.builder(
+                        controller: _pageController,
+                        itemCount: 5,
+                        onPageChanged: (index) {
+                          setState(() {
+                            _selectedDayIndex = index;
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          return Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: 60,
+                            ), // 避免被收合狀態的Bar擋住
+                            child: DayItineraryWidget(
+                              dayIndex: index,
+                              onAddPressed: _addNewActivity,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
-
-                // 5. 底部工具區 (包含總花費)
-                _buildToolsSection(),
               ],
             ),
+          ),
+
+          // 5. 底部可隱藏工具列 (最上層)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _buildExpandableTools(),
           ),
         ],
       ),
@@ -769,7 +856,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 獨立出來的單日行程 Widget (解決閃爍問題)
+// 獨立出來的單日行程 Widget
 // ---------------------------------------------------------------------------
 class DayItineraryWidget extends StatelessWidget {
   final int dayIndex;
@@ -816,7 +903,7 @@ class DayItineraryWidget extends StatelessWidget {
             );
           },
         ),
-        // 懸浮新增按鈕 (跟隨頁面)
+        // 懸浮新增按鈕
         Positioned(
           right: 20,
           bottom: 20,
@@ -1094,7 +1181,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 附屬頁面：地圖、行李、必買、翻譯、分帳 (全雲端化或功能化)
+// 附屬頁面
 // ---------------------------------------------------------------------------
 
 // 地圖
@@ -1140,7 +1227,7 @@ class MapListPage extends StatelessWidget {
   }
 }
 
-// 進階分帳
+// 進階分帳 (具備記憶功能 - 存於 Firestore)
 class AdvancedSplitBillDialog extends StatefulWidget {
   const AdvancedSplitBillDialog({super.key});
   @override
@@ -1150,60 +1237,124 @@ class AdvancedSplitBillDialog extends StatefulWidget {
 
 class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   double total = 0;
-  List<String> people = ['我', '旅伴'];
+  List<String> people = [];
   final TextEditingController _c = TextEditingController();
+  final TextEditingController _totalC = TextEditingController();
+  final DocumentReference _billRef = FirebaseFirestore.instance
+      .collection('tools')
+      .doc('bill_data');
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      DocumentSnapshot doc = await _billRef.get();
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        setState(() {
+          total = (data['total'] ?? 0).toDouble();
+          people = List<String>.from(data['people'] ?? []);
+          _totalC.text = total == 0 ? '' : total.toStringAsFixed(0);
+        });
+      } else {
+        setState(() {
+          people = ['我']; // 預設值
+        });
+      }
+    } catch (e) {
+      print('Load bill error: $e');
+    }
+  }
+
+  Future<void> _saveData() async {
+    await _billRef.set({'total': total, 'people': people});
+  }
+
   @override
   Widget build(BuildContext context) {
     double share = people.isNotEmpty ? total / people.length : 0;
     return AlertDialog(
-      title: const Text('分帳'),
+      title: const Text('分帳神器 (自動記憶)'),
       content: SingleChildScrollView(
         child: Column(
           children: [
             TextField(
+              controller: _totalC,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: '總金額'),
-              onChanged: (v) => setState(() => total = double.tryParse(v) ?? 0),
+              decoration: const InputDecoration(labelText: '總金額 (JPY)'),
+              onChanged: (v) {
+                setState(() => total = double.tryParse(v) ?? 0);
+                _saveData();
+              },
             ),
-            const SizedBox(height: 10),
-            Text(
-              '每人 ¥${share.toStringAsFixed(0)}',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.teal,
+            const SizedBox(height: 15),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  const Text('每人應付', style: TextStyle(color: Colors.teal)),
+                  Text(
+                    '¥${share.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const Divider(),
+            const Divider(height: 30),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "分帳成員:",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              children: people
+                  .map(
+                    (p) => Chip(
+                      label: Text(p),
+                      onDeleted: () {
+                        setState(() => people.remove(p));
+                        _saveData();
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _c,
-                    decoration: const InputDecoration(hintText: '加人'),
+                    decoration: const InputDecoration(hintText: '新增名字'),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(Icons.add_circle, color: Colors.teal),
                   onPressed: () {
-                    if (_c.text.isNotEmpty)
+                    if (_c.text.isNotEmpty) {
                       setState(() {
                         people.add(_c.text);
                         _c.clear();
                       });
+                      _saveData();
+                    }
                   },
                 ),
               ],
-            ),
-            Wrap(
-              children: people
-                  .map(
-                    (p) => Chip(
-                      label: Text(p),
-                      onDeleted: () => setState(() => people.remove(p)),
-                    ),
-                  )
-                  .toList(),
             ),
           ],
         ),
@@ -1211,14 +1362,14 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('關閉'),
+          child: const Text('完成'),
         ),
       ],
     );
   }
 }
 
-// 行李、必買、翻譯 (這裡簡化為本地存儲示意，若需雲端可套用 Firestore)
+// 行李清單 (Tab分類 + 雪國必備)
 class PackingListPage extends StatefulWidget {
   const PackingListPage({super.key});
   @override
@@ -1226,47 +1377,83 @@ class PackingListPage extends StatefulWidget {
 }
 
 class _PackingListPageState extends State<PackingListPage> {
-  final Map<String, bool> _items = {'護照': false, '日幣': false};
-  final TextEditingController _c = TextEditingController();
+  // 預設資料
+  final Map<String, List<String>> _categories = {
+    '通用': ['護照', '日幣/信用卡', '網卡/漫遊', '充電器/行動電源', '盥洗用品', '常備藥品'],
+    '雪國': [
+      '發熱衣(Heattech)',
+      '防水手套',
+      '毛帽',
+      '圍巾/脖圍',
+      '冰爪',
+      '厚襪子',
+      '暖暖包',
+      '保濕乳液/護唇膏',
+      '墨鏡(雪盲)',
+    ],
+    '男生': ['刮鬍刀', '髮蠟'],
+    '女生': ['化妝品', '卸妝油', '生理用品', '電棒捲'],
+  };
+
+  // 勾選狀態 (暫存於記憶體，若需持久化可參考分帳做法存入Firestore)
+  final Map<String, bool> _checkedItems = {};
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('行李'), backgroundColor: Colors.blue),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                Expanded(child: TextField(controller: _c)),
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: () {
-                    if (_c.text.isNotEmpty)
-                      setState(() {
-                        _items[_c.text] = false;
-                        _c.clear();
-                      });
-                  },
-                ),
-              ],
-            ),
+    return DefaultTabController(
+      length: 4,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('行李清單'),
+          backgroundColor: Colors.blueAccent,
+          foregroundColor: Colors.white,
+          bottom: const TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
+            tabs: [
+              Tab(text: '通用'),
+              Tab(text: '雪國'),
+              Tab(text: '男生'),
+              Tab(text: '女生'),
+            ],
           ),
-          Expanded(
-            child: ListView(
-              children: _items.keys
-                  .map(
-                    (k) => CheckboxListTile(
-                      title: Text(k),
-                      value: _items[k],
-                      onChanged: (v) => setState(() => _items[k] = v!),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ],
+        ),
+        body: TabBarView(
+          children: [
+            _buildList('通用'),
+            _buildList('雪國'),
+            _buildList('男生'),
+            _buildList('女生'),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildList(String category) {
+    List<String> items = _categories[category] ?? [];
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        String item = items[index];
+        bool isChecked = _checkedItems[item] ?? false;
+        return CheckboxListTile(
+          title: Text(
+            item,
+            style: TextStyle(
+              decoration: isChecked ? TextDecoration.lineThrough : null,
+              color: isChecked ? Colors.grey : Colors.black,
+            ),
+          ),
+          value: isChecked,
+          onChanged: (val) {
+            setState(() {
+              _checkedItems[item] = val!;
+            });
+          },
+        );
+      },
     );
   }
 }
@@ -1278,21 +1465,30 @@ class ShoppingListPage extends StatefulWidget {
 }
 
 class _ShoppingListPageState extends State<ShoppingListPage> {
-  final List<String> _list = ['牛舌', '清酒'];
+  final List<String> _list = ['仙台牛舌', '荻之月', '喜久福', '伊達政宗周邊'];
   final TextEditingController _c = TextEditingController();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('必買'), backgroundColor: Colors.pink),
+      appBar: AppBar(title: const Text('必買清單'), backgroundColor: Colors.pink),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Expanded(child: TextField(controller: _c)),
+                Expanded(
+                  child: TextField(
+                    controller: _c,
+                    decoration: const InputDecoration(hintText: '輸入想買的東西...'),
+                  ),
+                ),
                 IconButton(
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(
+                    Icons.add_circle,
+                    color: Colors.pink,
+                    size: 30,
+                  ),
                   onPressed: () {
                     if (_c.text.isNotEmpty)
                       setState(() {
@@ -1308,9 +1504,10 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
             child: ListView.builder(
               itemCount: _list.length,
               itemBuilder: (c, i) => ListTile(
+                leading: const Icon(Icons.check_circle_outline),
                 title: Text(_list[i]),
                 trailing: IconButton(
-                  icon: const Icon(Icons.delete),
+                  icon: const Icon(Icons.delete, color: Colors.grey),
                   onPressed: () => setState(() => _list.removeAt(i)),
                 ),
               ),
@@ -1330,14 +1527,16 @@ class TranslatorPage extends StatefulWidget {
 
 class _TranslatorPageState extends State<TranslatorPage> {
   final List<Map<String, String>> _list = [
-    {'jp': 'トイレ', 'zh': '廁所'},
+    {'jp': 'トイレはどこですか？', 'zh': '廁所在哪裡？'},
+    {'jp': 'これください', 'zh': '我要這個'},
+    {'jp': 'お会計お願いします', 'zh': '麻煩結帳'},
   ];
   final TextEditingController _j = TextEditingController(),
       _z = TextEditingController();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('翻譯'), backgroundColor: Colors.purple),
+      appBar: AppBar(title: const Text('旅遊翻譯'), backgroundColor: Colors.purple),
       body: Column(
         children: [
           Padding(
@@ -1347,14 +1546,14 @@ class _TranslatorPageState extends State<TranslatorPage> {
                 Expanded(
                   child: TextField(
                     controller: _j,
-                    decoration: const InputDecoration(hintText: '日'),
+                    decoration: const InputDecoration(hintText: '日文'),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _z,
-                    decoration: const InputDecoration(hintText: '中'),
+                    decoration: const InputDecoration(hintText: '中文'),
                   ),
                 ),
                 IconButton(
@@ -1372,14 +1571,24 @@ class _TranslatorPageState extends State<TranslatorPage> {
             ),
           ),
           Expanded(
-            child: ListView.builder(
+            child: ListView.separated(
               itemCount: _list.length,
+              separatorBuilder: (c, i) => const Divider(),
               itemBuilder: (c, i) => ListTile(
-                title: Text(_list[i]['jp']!),
-                subtitle: Text(_list[i]['zh']!),
+                title: Text(
+                  _list[i]['jp']!,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                subtitle: Text(
+                  _list[i]['zh']!,
+                  style: const TextStyle(fontSize: 14),
+                ),
                 trailing: IconButton(
-                  icon: const Icon(Icons.delete),
-                  onPressed: () => setState(() => _list.removeAt(i)),
+                  icon: const Icon(Icons.volume_up), // 示意圖標
+                  onPressed: () {},
                 ),
               ),
             ),
