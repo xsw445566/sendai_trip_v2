@@ -7,10 +7,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ---------------------------------------------------------------------------
-// ★★★ Firebase 設定區 (請填入你的 Web App Config) ★★★
+// ★★★ 1. Firebase 設定區 (已填入你的 Key) ★★★
 // ---------------------------------------------------------------------------
 const firebaseOptions = FirebaseOptions(
-  apiKey: "AIzaSyBB6wqntt9gzoC1qHonWkSwH2NS4I9-TLY", // 例如: AIzaSyD...
+  apiKey: "AIzaSyBB6wqntt9gzoC1qHonWkSwH2NS4I9-TLY",
   authDomain: "sendai-app-18d03.firebaseapp.com",
   projectId: "sendai-app-18d03",
   storageBucket: "sendai-app-18d03.firebasestorage.app",
@@ -18,21 +18,24 @@ const firebaseOptions = FirebaseOptions(
   appId: "1:179113239546:web:d45344e45740fe0df03a43",
 );
 
+// ---------------------------------------------------------------------------
+// ★★★ 2. 天氣 API Key (已填入你的 Key) ★★★
+// ---------------------------------------------------------------------------
+const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc"; 
+
 void main() async {
-  // 確保 Flutter 引擎與 Firebase 初始化完成
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await Firebase.initializeApp(options: firebaseOptions);
   } catch (e) {
-    print("Firebase 初始化失敗 (若是重複初始化可忽略): $e");
+    print("Firebase 初始化訊息: $e");
   }
   runApp(const TohokuTripApp());
 }
 
 // ---------------------------------------------------------------------------
-// 資料模型 (Data Models)
+// 資料模型
 // ---------------------------------------------------------------------------
-
 enum ActivityType { sight, food, shop, transport, other }
 
 class Activity {
@@ -44,7 +47,7 @@ class Activity {
   double cost;
   ActivityType type;
   List<String> imageUrls;
-  int dayIndex; // 新增：用來區分是第幾天的行程
+  int dayIndex;
 
   Activity({
     required this.id,
@@ -58,7 +61,6 @@ class Activity {
     required this.dayIndex,
   });
 
-  // 轉成 Map 存入 Firebase
   Map<String, dynamic> toMap() {
     return {
       'time': time,
@@ -66,13 +68,12 @@ class Activity {
       'location': location,
       'notes': notes,
       'cost': cost,
-      'type': type.index, // 存 enum 的索引值 (0, 1, 2...)
+      'type': type.index,
       'imageUrls': imageUrls,
       'dayIndex': dayIndex,
     };
   }
 
-  // 從 Firebase 讀出
   factory Activity.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return Activity(
@@ -90,7 +91,36 @@ class Activity {
 }
 
 // ---------------------------------------------------------------------------
-// 主程式
+// 備份資料 (用於一鍵還原)
+// ---------------------------------------------------------------------------
+final List<Activity> _backupData = [
+  // Day 1
+  Activity(id: '', dayIndex: 0, time: '07:25', title: '桃園機場集合', location: '第二航廈', notes: '星宇航空櫃檯', type: ActivityType.transport),
+  Activity(id: '', dayIndex: 0, time: '11:50', title: '搭機前往仙台', location: 'JX862', type: ActivityType.transport),
+  Activity(id: '', dayIndex: 0, time: '16:00', title: '抵達仙台機場', location: '仙台空港', type: ActivityType.transport),
+  Activity(id: '', dayIndex: 0, time: '18:00', title: '仙台市區逛街', location: '一番町', notes: '晚餐自理，推薦牛舌', type: ActivityType.shop, cost: 5000),
+  // Day 2
+  Activity(id: '', dayIndex: 1, time: '09:00', title: '藏王樹冰纜車', location: '藏王山麓站', notes: '冬季限定 ICE MONSTER', cost: 3000, type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1548263594-a71ea65a85b8?q=80']),
+  Activity(id: '', dayIndex: 1, time: '13:00', title: '銀山溫泉散策', location: '銀山溫泉', notes: '神隱少女場景', type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1533052445851-913437142b78?q=80']),
+  Activity(id: '', dayIndex: 1, time: '18:00', title: '飯店會席料理', location: '天童溫泉', type: ActivityType.food),
+  // Day 3
+  Activity(id: '', dayIndex: 2, time: '09:30', title: '飯豊雪上樂園', location: '飯豊', notes: '無限暢玩雪上摩托車', type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1551524559-8af4e6624178?q=80']),
+  Activity(id: '', dayIndex: 2, time: '14:00', title: '南陽熊野大社', location: '熊野大社', notes: '尋找三隻兔子', type: ActivityType.sight),
+  Activity(id: '', dayIndex: 2, time: '16:00', title: '大和川酒造', location: '喜多方', notes: '試飲日本酒', type: ActivityType.shop),
+  // Day 4
+  Activity(id: '', dayIndex: 3, time: '10:00', title: '大內宿', location: '大內宿', notes: '日本三大茅葺屋聚落', type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1533423376241-750f6820464f?q=80']),
+  Activity(id: '', dayIndex: 3, time: '13:00', title: '會津鐵道體驗', location: '湯野上溫泉', notes: '茅草屋車站', type: ActivityType.transport),
+  Activity(id: '', dayIndex: 3, time: '14:00', title: '蘆之牧溫泉站', location: '蘆之牧溫泉', notes: '拜訪貓咪站長', type: ActivityType.sight),
+  Activity(id: '', dayIndex: 3, time: '16:00', title: '會津若松城', location: '鶴城', type: ActivityType.sight),
+  // Day 5
+  Activity(id: '', dayIndex: 4, time: '09:00', title: '松島遊船', location: '松島海岸', notes: '日本三景', cost: 1500, type: ActivityType.sight, imageUrls: ['https://images.unsplash.com/photo-1572535780442-8354c553835c?q=80']),
+  Activity(id: '', dayIndex: 4, time: '10:30', title: '五大堂', location: '五大堂', notes: '走結緣橋', type: ActivityType.sight),
+  Activity(id: '', dayIndex: 4, time: '13:00', title: 'AEON MALL 購物', location: '名取 AEON', notes: '最後衝刺', type: ActivityType.shop, cost: 20000),
+  Activity(id: '', dayIndex: 4, time: '15:30', title: '前往機場', location: '仙台空港', type: ActivityType.transport),
+];
+
+// ---------------------------------------------------------------------------
+// 主程式 UI
 // ---------------------------------------------------------------------------
 
 class TohokuTripApp extends StatelessWidget {
@@ -109,7 +139,7 @@ class TohokuTripApp extends StatelessWidget {
           surface: const Color(0xFFF9F8F4),
         ),
         useMaterial3: true,
-        fontFamily: 'Roboto',
+        fontFamily: 'Roboto', 
       ),
       home: const ElegantItineraryPage(),
     );
@@ -129,26 +159,35 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   Timer? _timer;
   String _currentTime = '';
   
-  // 天氣變數 (請填入你的 API Key)
-  final String _apiKey = "請將你的OpenWeatherMap_Key貼在這裡"; 
   final String _city = "Sendai";
-  
   String _weatherTemp = "--°";
   String _weatherCond = "載入中...";
   IconData _weatherIcon = Icons.cloud_download;
 
-  // Firebase Collection 參照
   final CollectionReference _activitiesRef = FirebaseFirestore.instance.collection('activities');
+  
+  // 快取 Stream 防止閃爍
+  late Stream<QuerySnapshot> _currentStream;
 
   @override
   void initState() {
     super.initState();
     _updateTime();
     _fetchRealWeather();
+    
+    // 初始化時載入 Day 1
+    _updateStream();
+
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTime();
       if (t.tick % 1800 == 0) _fetchRealWeather();
     });
+  }
+
+  void _updateStream() {
+    _currentStream = _activitiesRef
+        .where('dayIndex', isEqualTo: _selectedDayIndex)
+        .snapshots();
   }
 
   @override
@@ -165,10 +204,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   Future<void> _fetchRealWeather() async {
-    if (_apiKey.contains("OpenWeatherMap_Key")) return; // 防止未設定 Key 報錯
+    // 簡單防呆
+    if (_weatherApiKey.length < 10) return;
 
     final url = Uri.parse(
-        'https://api.openweathermap.org/data/2.5/weather?q=$_city&appid=$_apiKey&units=metric&lang=zh_tw');
+        'https://api.openweathermap.org/data/2.5/weather?q=$_city&appid=$_weatherApiKey&units=metric&lang=zh_tw');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -202,7 +242,29 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
-  // 計算總花費 (讀取 Firebase 串流)
+  Future<void> _uploadDefaultData() async {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('正在匯入預設行程至雲端...')));
+    var snapshot = await _activitiesRef.get();
+    if (snapshot.docs.isNotEmpty) {
+      bool confirm = await showDialog(
+        context: context, 
+        builder: (c) => AlertDialog(
+          title: const Text('警告'),
+          content: const Text('雲端資料庫看起來已經有資料了，確定要重複匯入嗎？'),
+          actions: [
+            TextButton(onPressed: ()=>Navigator.pop(c, false), child: const Text('取消')),
+            TextButton(onPressed: ()=>Navigator.pop(c, true), child: const Text('確定匯入')),
+          ],
+        )
+      ) ?? false;
+      if (!confirm) return;
+    }
+    for (var item in _backupData) {
+      await _activitiesRef.add(item.toMap());
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('匯入完成！')));
+  }
+
   Widget _buildTotalCostDisplay() {
     return StreamBuilder<QuerySnapshot>(
       stream: _activitiesRef.snapshots(),
@@ -242,7 +304,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // 導航到詳細頁面
   void _navigateToDetail(Activity activity, bool isNew) {
     Navigator.push(
       context,
@@ -250,25 +311,21 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         activity: activity, 
         onSave: (updatedActivity) async {
           if (isNew) {
-            // 新增到 Firebase
             await _activitiesRef.add(updatedActivity.toMap());
           } else {
-            // 更新 Firebase
             await _activitiesRef.doc(updatedActivity.id).update(updatedActivity.toMap());
           }
         },
         onDelete: isNew ? null : () async {
-          // 從 Firebase 刪除
           await _activitiesRef.doc(activity.id).delete();
         },
       )),
     );
   }
 
-  // 新增行程
   void _addNewActivity(int dayIndex) {
     Activity newActivity = Activity(
-      id: '', // ID 會由 Firebase 自動產生
+      id: '', 
       time: '00:00',
       title: '新行程',
       type: ActivityType.sight,
@@ -277,14 +334,16 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     _navigateToDetail(newActivity, true);
   }
 
-  // 導航功能
   void _handleToolTap(String label) {
+    if (label == '匯入資料') {
+      _uploadDefaultData();
+      return;
+    }
     Widget page;
     switch (label) {
       case '行李': page = const PackingListPage(); break;
       case '必買': page = const ShoppingListPage(); break;
       case '翻譯': page = const TranslatorPage(); break;
-      // 地圖暫時需傳入空列表，因為資料已在雲端
       case '地圖': page = const MapListPage(); break; 
       default: return;
     }
@@ -309,7 +368,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   void _showSplitBillDialog() {
-    // 簡單版分帳
     showDialog(context: context, builder: (context) => const AlertDialog(title: Text('分帳'), content: Text('請自行實作或參考前版')));
   }
 
@@ -326,10 +384,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // 頂部背景圖
+          // 背景
           Positioned(
-            top: 0, left: 0, right: 0,
-            height: 350,
+            top: 0, left: 0, right: 0, height: 350,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -337,10 +394,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.black12, Colors.white.withOpacity(0.1), const Color(0xFFF9F8F4)], 
-                      stops: const [0.0, 0.6, 1.0],
+                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                      colors: [Colors.black12, Colors.white.withOpacity(0.1), const Color(0xFFF9F8F4)], stops: const [0.0, 0.6, 1.0],
                     ),
                   ),
                 ),
@@ -351,7 +406,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           SafeArea(
             child: Column(
               children: [
-                // 1. 頂部資訊區
+                // 1. 資訊區
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10),
                   child: Row(
@@ -408,6 +463,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       _buildToolItem(Icons.map, '地圖', Colors.green, onTap: () => _handleToolTap('地圖')),
                       _buildToolItem(Icons.currency_exchange, '匯率', Colors.orange, onTap: _showCurrencyDialog),
                       _buildToolItem(Icons.diversity_3, '分帳', Colors.teal, onTap: _showSplitBillDialog),
+                      _buildToolItem(Icons.cloud_upload, '匯入資料', Colors.red, onTap: () => _handleToolTap('匯入資料')), 
                       _buildToolItem(Icons.image, '換背景', Colors.grey, onTap: _showChangeImageDialog),
                     ],
                   ),
@@ -425,7 +481,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     itemBuilder: (context, index) {
                       bool isSelected = _selectedDayIndex == index;
                       return GestureDetector(
-                        onTap: () => setState(() => _selectedDayIndex = index),
+                        onTap: () {
+                          // 切換日期時更新 Stream
+                          setState(() {
+                            _selectedDayIndex = index;
+                            _updateStream();
+                          });
+                        },
                         child: Container(
                           width: 70,
                           margin: const EdgeInsets.only(right: 12),
@@ -449,23 +511,32 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
                 const SizedBox(height: 10),
 
-                // 4. 即時連線行程列表 (使用 StreamBuilder)
+                // 4. 行程列表
                 Expanded(
                   child: StreamBuilder<QuerySnapshot>(
-                    stream: _activitiesRef
-                      .where('dayIndex', isEqualTo: _selectedDayIndex)
-                      .snapshots(), // 監聽資料庫變化
+                    stream: _currentStream,
                     builder: (context, snapshot) {
                       if (snapshot.hasError) return Center(child: Text('錯誤: ${snapshot.error}'));
-                      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                      
+                      // 使用者體驗優化：不放 Loading 避免閃爍，直接顯示空或舊資料
+                      if (!snapshot.hasData) return const SizedBox();
 
-                      // 取得資料並轉為 List<Activity>
                       List<Activity> activities = snapshot.data!.docs.map((doc) => Activity.fromFirestore(doc)).toList();
                       
-                      // 在客戶端進行排序 (依照時間)
                       activities.sort((a, b) => a.time.compareTo(b.time));
 
-                      if (activities.isEmpty) return const Center(child: Text('點擊 + 新增行程', style: TextStyle(color: Colors.grey)));
+                      if (activities.isEmpty) {
+                         return const Center(
+                           child: Column(
+                             mainAxisAlignment: MainAxisAlignment.center,
+                             children: [
+                               Icon(Icons.cloud_off, size: 50, color: Colors.grey),
+                               SizedBox(height: 10),
+                               Text('目前沒有行程', style: TextStyle(color: Colors.grey)),
+                             ],
+                           )
+                         );
+                      }
 
                       return ListView.builder(
                         padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
@@ -540,10 +611,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
           ),
 
-          // 浮動新增按鈕
           Positioned(
-            right: 20,
-            bottom: 90,
+            right: 20, bottom: 90,
             child: FloatingActionButton(
               onPressed: () => _addNewActivity(_selectedDayIndex),
               backgroundColor: const Color(0xFF8B2E2E),
@@ -552,7 +621,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
           ),
 
-          // 底部總花費欄
           Positioned(
             left: 0, right: 0, bottom: 0,
             child: Container(
@@ -561,7 +629,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 color: Colors.white,
                 border: Border(top: BorderSide(color: Color(0xFFD4C5A9))),
               ),
-              child: _buildTotalCostDisplay(), // 改用 StreamBuilder 顯示
+              child: _buildTotalCostDisplay(),
             ),
           ),
         ],
@@ -604,7 +672,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 class ActivityDetailPage extends StatefulWidget {
   final Activity activity;
   final Function(Activity) onSave;
-  final VoidCallback? onDelete; // 新增刪除功能
+  final VoidCallback? onDelete;
 
   const ActivityDetailPage({super.key, required this.activity, required this.onSave, this.onDelete});
 
@@ -661,8 +729,8 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                   TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('取消')),
                   TextButton(onPressed: (){ 
                     widget.onDelete!(); 
-                    Navigator.pop(c); // 關 Dialog
-                    Navigator.pop(context); // 回列表
+                    Navigator.pop(c);
+                    Navigator.pop(context);
                   }, child: const Text('刪除', style: TextStyle(color: Colors.red))),
                 ],
               ));
@@ -691,7 +759,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 功能子頁面 (Packing, Shopping, etc.)
+// 功能子頁面
 // ---------------------------------------------------------------------------
 
 class PackingListPage extends StatefulWidget {
