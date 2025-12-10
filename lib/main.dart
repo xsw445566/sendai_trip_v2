@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'dart:math';
 import 'dart:convert';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
@@ -8,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // 新增認證套件
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -16,6 +15,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 // ---------------------------------------------------------------------------
 // 1. Firebase 設定
 // ---------------------------------------------------------------------------
+
 const firebaseOptions = FirebaseOptions(
   apiKey: "AIzaSyBB6wqntt9gzoC1qHonWkSwH2NS4I9-TLY",
   authDomain: "sendai-app-18d03.firebaseapp.com",
@@ -26,25 +26,42 @@ const firebaseOptions = FirebaseOptions(
 );
 
 // ---------------------------------------------------------------------------
-// 2. API Keys
+// 2. API Keys  （⚠ 航班 API 目前仍直接呼叫 AirLabs，之後可改成 Cloud Functions）
 // ---------------------------------------------------------------------------
+
 const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc";
 const String _flightApiKey = "73d5e5ca-a0eb-462d-8a91-62e6a7657cb9";
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(options: firebaseOptions);
-    FirebaseAnalytics analytics = FirebaseAnalytics.instance;
-    // await analytics.logAppOpen(); // Web環境有時會有問題，可視情況開啟
-  } catch (e) {
-    print("Firebase 初始化訊息: $e");
-  }
-  runApp(const TohokuTripApp());
+// ---------------------------------------------------------------------------
+// 3. Firestore Service：集中管理 users/{uid}/... 路徑
+// ---------------------------------------------------------------------------
+
+class FirestoreService {
+  final String uid;
+  FirestoreService(this.uid);
+
+  CollectionReference<Map<String, dynamic>> get activities => FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(uid)
+      .collection('activities');
+
+  CollectionReference<Map<String, dynamic>> get flights => FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(uid)
+      .collection('flights');
+
+  DocumentReference<Map<String, dynamic>> get billData => FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(uid)
+      .collection('tools')
+      .doc('bill_data');
 }
 
 // ---------------------------------------------------------------------------
-// 資料模型 (不變)
+// 4. Models
 // ---------------------------------------------------------------------------
 
 class FlightInfo {
@@ -95,8 +112,8 @@ class FlightInfo {
     };
   }
 
-  factory FlightInfo.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+  factory FlightInfo.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
     return FlightInfo(
       id: doc.id,
       flightNo: data['flightNo'] ?? '',
@@ -120,8 +137,18 @@ class FlightInfo {
       return fullTime.substring(11, 16);
     }
 
-    String sDep = formatTime(json['dep_time']);
-    String sArr = formatTime(json['arr_time']);
+    // 取出日期
+    String dateStr = '';
+    final depTime = json['dep_time'];
+    if (depTime is String) {
+      final dt = DateTime.tryParse(depTime);
+      if (dt != null) {
+        dateStr = DateFormat('dd MMM').format(dt).toUpperCase();
+      }
+    }
+
+    final sDep = formatTime(json['dep_time']);
+    final sArr = formatTime(json['arr_time']);
     String eDep = formatTime(json['dep_estimated']);
     if (eDep.isEmpty) eDep = sDep;
 
@@ -130,7 +157,7 @@ class FlightInfo {
       flightNo: json['flight_iata'] ?? '',
       fromCode: json['dep_iata'] ?? '',
       toCode: json['arr_iata'] ?? '',
-      date: json['dep_time']?.toString().substring(5, 10) ?? '',
+      date: dateStr,
       schedDep: sDep,
       schedArr: sArr,
       estDep: eDep,
@@ -184,8 +211,8 @@ class Activity {
     };
   }
 
-  factory Activity.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+  factory Activity.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
     return Activity(
       id: doc.id,
       time: data['time'] ?? '00:00',
@@ -202,8 +229,20 @@ class Activity {
 }
 
 // ---------------------------------------------------------------------------
-// 主程式 UI Setup (新增認證狀態判斷)
+// 5. main() & App 殼
 // ---------------------------------------------------------------------------
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(options: firebaseOptions);
+    FirebaseAnalytics.instance; // 若之後要用 analytics 可再補 log
+  } catch (e) {
+    print('Firebase init error: $e');
+  }
+  runApp(const TohokuTripApp());
+}
+
 class TohokuTripApp extends StatelessWidget {
   const TohokuTripApp({super.key});
 
@@ -215,25 +254,22 @@ class TohokuTripApp extends StatelessWidget {
       theme: ThemeData(
         primaryColor: const Color(0xFF9E8B6E),
         scaffoldBackgroundColor: const Color(0xFFF5F5F5),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF9E8B6E),
-          surface: const Color(0xFFF5F5F5),
-          primary: const Color(0xFF9E8B6E),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF9E8B6E)),
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
-      // 使用 StreamBuilder 監聽登入狀態
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
           }
-          if (snapshot.hasData) {
-            return const ElegantItineraryPage(); // 已登入
+          if (snap.hasData && snap.data != null) {
+            return ElegantItineraryPage(uid: snap.data!.uid);
           }
-          return const LoginPage(); // 未登入
+          return const LoginPage();
         },
       ),
     );
@@ -241,8 +277,9 @@ class TohokuTripApp extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// 全新：登入/註冊頁面
+// 6. Login Page
 // ---------------------------------------------------------------------------
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -251,29 +288,33 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isLogin = true; // 切換登入或註冊
-  String _errorMessage = '';
+  final _email = TextEditingController();
+  final _pwd = TextEditingController();
+  bool _isLogin = true;
+  String _err = '';
+  bool _loading = false;
 
   Future<void> _submit() async {
-    setState(() => _errorMessage = '');
+    setState(() {
+      _err = '';
+      _loading = true;
+    });
     try {
       if (_isLogin) {
         await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
+          email: _email.text.trim(),
+          password: _pwd.text.trim(),
         );
       } else {
         await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
+          email: _email.text.trim(),
+          password: _pwd.text.trim(),
         );
       }
     } on FirebaseAuthException catch (e) {
-      setState(() {
-        _errorMessage = e.message ?? '發生錯誤';
-      });
+      setState(() => _err = e.message ?? '發生錯誤');
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -309,7 +350,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 20),
                   TextField(
-                    controller: _emailController,
+                    controller: _email,
                     decoration: const InputDecoration(
                       labelText: '電子郵件',
                       border: OutlineInputBorder(),
@@ -318,7 +359,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 15),
                   TextField(
-                    controller: _passwordController,
+                    controller: _pwd,
                     decoration: const InputDecoration(
                       labelText: '密碼',
                       border: OutlineInputBorder(),
@@ -327,28 +368,28 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: true,
                   ),
                   const SizedBox(height: 10),
-                  if (_errorMessage.isNotEmpty)
-                    Text(
-                      _errorMessage,
-                      style: const TextStyle(color: Colors.red),
-                    ),
+                  if (_err.isNotEmpty)
+                    Text(_err, style: const TextStyle(color: Colors.red)),
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
-                    height: 50,
+                    height: 48,
                     child: ElevatedButton(
-                      onPressed: _submit,
+                      onPressed: _loading ? null : _submit,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF9E8B6E),
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
                       ),
-                      child: Text(
-                        _isLogin ? '登入' : '註冊',
-                        style: const TextStyle(fontSize: 18),
-                      ),
+                      child: _loading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(_isLogin ? '登入' : '註冊'),
                     ),
                   ),
                   TextButton(
@@ -366,16 +407,20 @@ class _LoginPageState extends State<LoginPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 主頁面 (行程頁)
+// 7. 主頁面：ElegantItineraryPage
 // ---------------------------------------------------------------------------
+
 class ElegantItineraryPage extends StatefulWidget {
-  const ElegantItineraryPage({super.key});
+  final String uid;
+  const ElegantItineraryPage({super.key, required this.uid});
 
   @override
   State<ElegantItineraryPage> createState() => _ElegantItineraryPageState();
 }
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
+  late final FirestoreService _fs;
+
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
 
@@ -387,25 +432,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   final String _city = "Sendai";
   String _weatherTemp = "--°";
-  String _weatherCond = "Loading";
+  String _weatherCond = "";
   IconData _weatherIcon = Icons.cloud;
 
   bool _isToolsExpanded = false;
 
-  // ★★★ 關鍵修改：取得當前用戶 ID ★★★
-  String get uid => FirebaseAuth.instance.currentUser!.uid;
-
-  // ★★★ 關鍵修改：資料庫路徑改為 users/{uid}/... ★★★
-  CollectionReference get _activitiesRef => FirebaseFirestore.instance
-      .collection('users')
-      .doc(uid)
-      .collection('activities');
-  CollectionReference get _flightsRef => FirebaseFirestore.instance
-      .collection('users')
-      .doc(uid)
-      .collection('flights');
-
-  // 預設靜態機票 (當資料庫沒資料時用)
+  // 預設靜態機票
   final FlightInfo _defaultOutbound = FlightInfo(
     id: 'default_out',
     flightNo: 'JX862',
@@ -414,6 +446,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     date: '16 JAN',
     schedDep: '11:50',
     schedArr: '16:00',
+    estDep: '',
     terminal: '1',
     gate: 'B5',
     counter: '-',
@@ -428,6 +461,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     date: '20 JAN',
     schedDep: '17:30',
     schedArr: '20:40',
+    estDep: '',
     terminal: 'I',
     gate: '3',
     counter: '-',
@@ -438,10 +472,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   @override
   void initState() {
     super.initState();
+    _fs = FirestoreService(widget.uid);
+
+    _runMigrationIfNeeded(); // ✅ 將舊頂層 activities / flights 搬到 users/{uid}/...
+
     _updateTime();
     _fetchRealWeather();
 
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       _updateTime();
       if (t.tick % 1800 == 0) _fetchRealWeather();
     });
@@ -453,6 +491,34 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     _pageController.dispose();
     super.dispose();
   }
+
+  // ------------------ 資料搬移 ------------------
+
+  Future<void> _runMigrationIfNeeded() async {
+    final db = FirebaseFirestore.instance;
+    try {
+      final existing = await _fs.activities.limit(1).get();
+      if (existing.docs.isNotEmpty) return; // 代表已搬過，不再處理
+
+      // activities
+      final oldActs = await db.collection('activities').get();
+      for (var doc in oldActs.docs) {
+        await _fs.activities.doc(doc.id).set(doc.data());
+      }
+
+      // flights
+      final oldFlights = await db.collection('flights').get();
+      for (var doc in oldFlights.docs) {
+        await _fs.flights.doc(doc.id).set(doc.data());
+      }
+
+      print('🔥 Migration finished for user ${widget.uid}');
+    } catch (e) {
+      print('Migration error: $e');
+    }
+  }
+
+  // ------------------ 時間 & 天氣 ------------------
 
   void _updateTime() {
     final now = DateTime.now();
@@ -467,19 +533,24 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       'https://api.openweathermap.org/data/2.5/weather?q=$_city&appid=$_weatherApiKey&units=metric&lang=zh_tw',
     );
     try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      final res = await http.get(url);
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        if (!mounted) return;
+        final temp = (data['main']['temp'] as num).round();
+        final desc = data['weather'][0]['description'];
+        final iconCode = data['weather'][0]['icon'] as String;
+
         setState(() {
-          double temp = data['main']['temp'];
-          _weatherTemp = "${temp.round()}°";
-          _weatherCond = data['weather'][0]['description'];
-          String iconCode = data['weather'][0]['icon'];
+          _weatherTemp = "$temp°";
+          _weatherCond = desc;
           _weatherIcon = _mapWeatherIcon(iconCode);
         });
+      } else {
+        print('Weather error: ${res.statusCode}');
       }
     } catch (e) {
-      print("Error fetching weather: $e");
+      print('Weather error: $e');
     }
   }
 
@@ -518,21 +589,22 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
+  // ------------------ Activity 新增 ------------------
+
   void _addNewActivity() {
-    Activity newActivity = Activity(
+    final newActivity = Activity(
       id: '',
       time: '00:00',
       title: '新行程',
-      type: ActivityType.sight,
       dayIndex: _selectedDayIndex,
     );
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ActivityDetailPage(
+        builder: (_) => ActivityDetailPage(
           activity: newActivity,
-          onSave: (updatedActivity) async {
-            await _activitiesRef.add(updatedActivity.toMap());
+          onSave: (a) async {
+            await _fs.activities.add(a.toMap());
           },
           onDelete: null,
         ),
@@ -540,9 +612,32 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- 機票管理功能 ---
+  // ------------------ Flight API 呼叫 ------------------
+
+  Future<FlightInfo?> _fetchApiData(String flightNo) async {
+    try {
+      final url = Uri.parse(
+        'https://airlabs.co/api/v9/schedules?flight_iata=$flightNo&api_key=$_flightApiKey',
+      );
+      final res = await http.get(url);
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        if (data['response'] != null &&
+            data['response'] is List &&
+            (data['response'] as List).isNotEmpty) {
+          return FlightInfo.fromApi(data['response'][0]);
+        }
+      } else {
+        print('AirLabs error: ${res.statusCode}');
+      }
+    } catch (e) {
+      print('AirLabs exception: $e');
+    }
+    return null;
+  }
+
   void _addNewFlight() {
-    FlightInfo newFlight = FlightInfo(
+    final f = FlightInfo(
       id: '',
       flightNo: '',
       fromCode: 'TPE',
@@ -550,39 +645,19 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       date: '',
       schedDep: '',
       schedArr: '',
+      estDep: '',
       terminal: '',
       gate: '',
       counter: '',
       baggage: '',
       status: '',
     );
-    _showFlightEditor(newFlight, isNew: true);
-  }
-
-  // 查詢 API 並回傳資料的 Helper
-  Future<FlightInfo?> _fetchApiData(String flightNo) async {
-    try {
-      final url = Uri.parse(
-        'https://airlabs.co/api/v9/schedules?flight_iata=$flightNo&api_key=$_flightApiKey',
-      );
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final jsonResponse = json.decode(response.body);
-        if (jsonResponse['response'] != null &&
-            (jsonResponse['response'] as List).isNotEmpty) {
-          return FlightInfo.fromApi(jsonResponse['response'][0]);
-        }
-      }
-    } catch (e) {
-      print("API Fetch Error: $e");
-    }
-    return null;
+    _showFlightEditor(f, isNew: true);
   }
 
   void _showFlightEditor(FlightInfo flight, {required bool isNew}) {
     final noC = TextEditingController(text: flight.flightNo);
     final dateC = TextEditingController(text: flight.date);
-
     final fromC = TextEditingController(text: flight.fromCode);
     final toC = TextEditingController(text: flight.toCode);
     final depC = TextEditingController(text: flight.schedDep);
@@ -599,7 +674,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
+        builder: (context, setS) {
           return AlertDialog(
             title: Text(isNew ? '新增機票 (自動同步)' : '編輯機票'),
             content: SingleChildScrollView(
@@ -629,11 +704,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                   if (isFetching)
                     const Padding(
-                      padding: EdgeInsets.all(8.0),
+                      padding: EdgeInsets.all(8),
                       child: LinearProgressIndicator(color: Color(0xFF9E8B6E)),
                     ),
                   const SizedBox(height: 10),
-
                   const Divider(),
                   Row(
                     children: [
@@ -653,7 +727,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ],
                   ),
                   const SizedBox(height: 10),
-
                   Row(
                     children: [
                       Expanded(
@@ -752,7 +825,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       Expanded(
                         child: TextField(
                           controller: bagC,
-                          enabled: true,
                           decoration: const InputDecoration(labelText: '行李轉盤'),
                         ),
                       ),
@@ -767,9 +839,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   icon: const Icon(Icons.sync),
                   label: const Text("搜尋與同步"),
                   onPressed: () async {
-                    setDialogState(() => isFetching = true);
-                    FlightInfo? apiData = await _fetchApiData(noC.text);
-                    setDialogState(() {
+                    setS(() => isFetching = true);
+                    final apiData = await _fetchApiData(noC.text.trim());
+                    setS(() {
                       isFetching = false;
                       if (apiData != null) {
                         isLocked = true;
@@ -779,7 +851,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                         arrC.text = apiData.schedArr;
                         termC.text = apiData.terminal;
                         gateC.text = apiData.gate;
-                        if (apiData.baggage != '-') bagC.text = apiData.baggage;
+                        if (apiData.baggage != '-') {
+                          bagC.text = apiData.baggage;
+                        }
                         dateC.text = apiData.date;
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -789,17 +863,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     });
                   },
                 ),
-
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('取消'),
               ),
-
               ElevatedButton(
                 onPressed: () {
-                  // 儲存邏輯：如果有預計時間就用預計，沒有就用表定
-                  String estDep = depC.text; // 預設為表定
-
                   final data = FlightInfo(
                     id: isNew ? '' : flight.id,
                     flightNo: noC.text,
@@ -808,7 +877,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     date: dateC.text,
                     schedDep: depC.text,
                     schedArr: arrC.text,
-                    estDep: estDep,
+                    estDep: depC.text,
                     terminal: termC.text,
                     gate: gateC.text,
                     counter: counterC.text,
@@ -817,9 +886,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ).toMap();
 
                   if (isNew) {
-                    _flightsRef.add(data);
+                    _fs.flights.add(data);
                   } else {
-                    _flightsRef.doc(flight.id).update(data);
+                    _fs.flights.doc(flight.id).update(data);
                   }
                   Navigator.pop(context);
                 },
@@ -832,163 +901,150 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  void _editFlight(FlightInfo flight) {
-    _showFlightEditor(flight, isNew: false);
-  }
-
-  void _handleToolTap(String label) {
-    Widget page;
-    switch (label) {
-      case '行李':
-        page = const PackingListPage();
-        break;
-      case '必買':
-        page = const ShoppingListPage();
-        break;
-      case '翻譯':
-        page = const TranslatorPage();
-        break;
-      case '地圖':
-        page = const MapListPage();
-        break;
-      case '匯率':
-        _showCurrencyDialog();
-        return;
-      case '分帳':
-        _showSplitBillDialog();
-        return;
-      default:
-        return;
-    }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => page));
-  }
-
-  void _showCurrencyDialog() {
-    double rate = 0.215;
-    double jpy = 0;
-    double twd = 0;
-    showDialog(
+  void _showFlightDetails(FlightInfo info) {
+    showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            Future<void> fetchRate() async {
-              try {
-                final url = Uri.parse(
-                  'https://api.exchangerate-api.com/v4/latest/JPY',
-                );
-                final response = await http.get(url);
-                if (response.statusCode == 200) {
-                  final data = json.decode(response.body);
-                  if (data['rates'] != null && data['rates']['TWD'] != null) {
-                    if (context.mounted) {
-                      setState(() {
-                        rate = (data['rates']['TWD']).toDouble();
-                        twd = jpy * rate;
-                      });
-                    }
-                  }
-                }
-              } catch (e) {
-                print('Currency API Error: $e');
-              }
-            }
-
-            fetchRate();
-
-            return AlertDialog(
-              title: const Text('即時匯率試算'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.8,
+        builder: (_, controller) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+          ),
+          child: ListView(
+            controller: controller,
+            padding: const EdgeInsets.all(25),
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextField(
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: '日幣 (JPY)',
-                      suffixText: '円',
-                    ),
-                    onChanged: (v) => setState(() {
-                      jpy = double.tryParse(v) ?? 0;
-                      twd = jpy * rate;
-                    }),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () {
+                      _fs.flights.doc(info.id).delete();
+                      Navigator.pop(context);
+                    },
                   ),
-                  const SizedBox(height: 10),
+                ],
+              ),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
                   Text(
-                    '約 NT\$ ${twd.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF9E8B6E),
+                    "Flight Details",
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      info.status.toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
               ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showSplitBillDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => const AdvancedSplitBillDialog(),
-    );
-  }
-
-  // --- Widget 構建: 動態機票卡片 (Firestore) ---
-  Widget _buildFlightCarousel() {
-    return Container(
-      height: 180,
-      margin: const EdgeInsets.symmetric(vertical: 10),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: _flightsRef.snapshots(),
-        builder: (context, snapshot) {
-          // 如果正在讀取，或資料庫是空的，顯示預設的靜態機票
-          List<FlightInfo> flights = [];
-
-          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-            flights = snapshot.data!.docs
-                .map((doc) => FlightInfo.fromFirestore(doc))
-                .toList();
-          } else {
-            // 預設機票
-            flights = [_defaultOutbound, _defaultInbound];
-          }
-
-          return PageView.builder(
-            controller: PageController(viewportFraction: 0.92),
-            itemCount: flights.length + 1, // 多一頁給新增按鈕
-            itemBuilder: (context, index) {
-              if (index == flights.length) {
-                return GestureDetector(
-                  onTap: _addNewFlight,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 5),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white),
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.add, size: 50, color: Colors.white),
-                    ),
+              const SizedBox(height: 10),
+              Text(
+                "${info.fromCode} ➔ ${info.toCode}",
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 30),
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 15,
+                crossAxisSpacing: 15,
+                childAspectRatio: 2.5,
+                children: [
+                  _buildDetailItem(Icons.access_time, "表定起飛", info.schedDep),
+                  _buildDetailItem(
+                    Icons.access_time_filled,
+                    "表定抵達",
+                    info.schedArr,
                   ),
-                );
-              }
-              return _buildCompactFlightCard(flights[index]);
-            },
-          );
-        },
+                  _buildDetailItem(Icons.update, "預計起飛", info.estDep),
+                  _buildDetailItem(Icons.how_to_reg, "報到櫃台", info.counter),
+                  _buildDetailItem(
+                    Icons.domain,
+                    "航廈 (Terminal)",
+                    info.terminal,
+                  ),
+                  _buildDetailItem(Icons.meeting_room, "登機門 (Gate)", info.gate),
+                  _buildDetailItem(Icons.luggage, "行李轉盤", info.baggage),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailItem(IconData icon, String title, String value) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFF9E8B6E), size: 28),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildCompactFlightCard(FlightInfo info) {
-    // 判斷是否為預設機票(不可編輯)
-    bool isDefault = info.id.startsWith('default');
-
+    final isDefault = info.id.startsWith('default');
     return GestureDetector(
       onTap: () => isDefault ? null : _showFlightDetails(info),
       child: Container(
@@ -1085,18 +1141,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  Widget _buildSmallInfo(String label, String value) {
-    return Column(
-      children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-        ),
-      ],
-    );
-  }
-
   Widget _buildAirportCode(String code, String time) {
     return Column(
       children: [
@@ -1109,256 +1153,182 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  void _showFlightDetails(FlightInfo info) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.4,
-        maxChildSize: 0.8,
-        builder: (_, controller) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-          ),
-          child: ListView(
-            controller: controller,
-            padding: const EdgeInsets.all(25),
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () {
-                      _flightsRef.doc(info.id).delete();
-                      Navigator.pop(context);
-                    },
-                  ),
-                ],
-              ),
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Flight Details",
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text(
-                      info.status.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                "${info.fromCode} ➔ ${info.toCode}",
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 30),
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                childAspectRatio: 2.5,
-                mainAxisSpacing: 15,
-                crossAxisSpacing: 15,
-                children: [
-                  _buildDetailItem(Icons.access_time, "表定起飛", info.schedDep),
-                  _buildDetailItem(
-                    Icons.access_time_filled,
-                    "表定抵達",
-                    info.schedArr,
-                  ),
-                  _buildDetailItem(Icons.update, "預計起飛", info.estDep),
-                  _buildDetailItem(Icons.how_to_reg, "報到櫃台", info.counter),
-                  _buildDetailItem(
-                    Icons.domain,
-                    "航廈 (Terminal)",
-                    info.terminal,
-                  ),
-                  _buildDetailItem(Icons.meeting_room, "登機門 (Gate)", info.gate),
-                  _buildDetailItem(Icons.luggage, "行李轉盤", info.baggage),
-                ],
-              ),
-            ],
-          ),
+  Widget _buildSmallInfo(String label, String value) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
         ),
-      ),
+      ],
     );
   }
 
-  Widget _buildDetailItem(IconData icon, String title, String value) {
+  Widget _buildFlightCarousel() {
     return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF9E8B6E), size: 28),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              ),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ],
+      height: 180,
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: _fs.flights.snapshots(),
+        builder: (context, snap) {
+          List<FlightInfo> flights;
+          if (snap.hasData && snap.data!.docs.isNotEmpty) {
+            flights = snap.data!.docs
+                .map((d) => FlightInfo.fromFirestore(d))
+                .toList();
+          } else {
+            flights = [_defaultOutbound, _defaultInbound];
+          }
+
+          return PageView.builder(
+            controller: PageController(viewportFraction: 0.92),
+            itemCount: flights.length + 1,
+            itemBuilder: (context, i) {
+              if (i == flights.length) {
+                // 新增按鈕
+                return GestureDetector(
+                  onTap: _addNewFlight,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.add, size: 50, color: Colors.white),
+                    ),
+                  ),
+                );
+              }
+              return _buildCompactFlightCard(flights[i]);
+            },
+          );
+        },
       ),
     );
   }
 
-  Widget _buildExpandableTools() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-      height: _isToolsExpanded ? 240 : 60,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                _isToolsExpanded = !_isToolsExpanded;
-              });
-            },
-            behavior: HitTestBehavior.translucent,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'TRAVEL TOOLS',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      color: Colors.grey,
-                    ),
+  // ------------------ Tools ------------------
+
+  void _handleToolTap(String label) {
+    switch (label) {
+      case '行李':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PackingListPage()),
+        );
+        break;
+      case '必買':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ShoppingListPage()),
+        );
+        break;
+      case '翻譯':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const TranslatorPage()),
+        );
+        break;
+      case '地圖':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => MapListPage(firestoreService: _fs)),
+        );
+        break;
+      case '匯率':
+        _showCurrencyDialog();
+        break;
+      case '分帳':
+        _showSplitBillDialog();
+        break;
+    }
+  }
+
+  void _showCurrencyDialog() {
+    double rate = 0.215;
+    double jpy = 0;
+    double twd = 0;
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (c, setS) {
+          Future<void> fetchRate() async {
+            try {
+              final url = Uri.parse(
+                'https://api.exchangerate-api.com/v4/latest/JPY',
+              );
+              final res = await http.get(url);
+              if (res.statusCode == 200) {
+                final data = json.decode(res.body);
+                final r = (data['rates']['TWD'] as num).toDouble();
+                if (c.mounted) {
+                  setS(() {
+                    rate = r;
+                    twd = jpy * rate;
+                  });
+                }
+              }
+            } catch (e) {
+              print('Currency API error: $e');
+            }
+          }
+
+          // 簡單來說：每次打開 dialog 抓一次
+          fetchRate();
+
+          return AlertDialog(
+            title: const Text('即時匯率試算'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '日幣 (JPY)',
+                    suffixText: '円',
                   ),
-                  Icon(
-                    _isToolsExpanded
-                        ? Icons.keyboard_arrow_down
-                        : Icons.keyboard_arrow_up,
-                    color: const Color(0xFF9E8B6E),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const NeverScrollableScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      height: 120,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          _buildTotalCostCard(),
-                          const SizedBox(width: 12),
-                          _buildToolIcon(Icons.luggage, '行李', Colors.blue),
-                          _buildToolIcon(Icons.shopping_bag, '必買', Colors.pink),
-                          _buildToolIcon(Icons.diversity_3, '分帳', Colors.teal),
-                          _buildToolIcon(
-                            Icons.currency_exchange,
-                            '匯率',
-                            Colors.orange,
-                          ),
-                          _buildToolIcon(Icons.translate, '翻譯', Colors.purple),
-                          _buildToolIcon(Icons.map, '地圖', Colors.green),
-                          // 登出按鈕
-                          _buildToolIcon(
-                            Icons.logout,
-                            '登出',
-                            Colors.red,
-                            onTap: () async {
-                              await FirebaseAuth.instance.signOut();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  onChanged: (v) {
+                    setS(() {
+                      jpy = double.tryParse(v) ?? 0;
+                      twd = jpy * rate;
+                    });
+                  },
                 ),
-              ),
+                const SizedBox(height: 10),
+                Text(
+                  '約 NT\$ ${twd.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF9E8B6E),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+          );
+        },
       ),
+    );
+  }
+
+  void _showSplitBillDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AdvancedSplitBillDialog(firestoreService: _fs),
     );
   }
 
   Widget _buildTotalCostCard() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _activitiesRef.snapshots(),
-      builder: (context, snapshot) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _fs.activities.snapshots(),
+      builder: (context, snap) {
         double total = 0;
-        if (snapshot.hasData) {
-          for (var doc in snapshot.data!.docs) {
-            var data = doc.data() as Map<String, dynamic>;
-            total += (data['cost'] ?? 0).toDouble();
+        if (snap.hasData) {
+          for (var d in snap.data!.docs) {
+            total += (d.data()['cost'] ?? 0).toDouble();
           }
         }
         return Container(
@@ -1432,6 +1402,102 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
+  Widget _buildExpandableTools() {
+    final h = MediaQuery.of(context).size.height;
+    final expandedHeight = h * 0.35 > 260 ? 260.0 : h * 0.35;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      height: _isToolsExpanded ? expandedHeight : 60,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: () {
+              setState(() => _isToolsExpanded = !_isToolsExpanded);
+            },
+            behavior: HitTestBehavior.translucent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'TRAVEL TOOLS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  Icon(
+                    _isToolsExpanded
+                        ? Icons.keyboard_arrow_down
+                        : Icons.keyboard_arrow_up,
+                    color: const Color(0xFF9E8B6E),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SizedBox(
+                  height: 120,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _buildTotalCostCard(),
+                      const SizedBox(width: 12),
+                      _buildToolIcon(Icons.luggage, '行李', Colors.blue),
+                      _buildToolIcon(Icons.shopping_bag, '必買', Colors.pink),
+                      _buildToolIcon(Icons.diversity_3, '分帳', Colors.teal),
+                      _buildToolIcon(
+                        Icons.currency_exchange,
+                        '匯率',
+                        Colors.orange,
+                      ),
+                      _buildToolIcon(Icons.translate, '翻譯', Colors.purple),
+                      _buildToolIcon(Icons.map, '地圖', Colors.green),
+                      _buildToolIcon(
+                        Icons.logout,
+                        '登出',
+                        Colors.red,
+                        onTap: () async {
+                          await FirebaseAuth.instance.signOut();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ------------------ build ------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1467,14 +1533,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               ],
             ),
           ),
-
           SafeArea(
             bottom: false,
             child: Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 24.0,
+                    horizontal: 24,
                     vertical: 10,
                   ),
                   child: Row(
@@ -1517,9 +1582,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ],
                   ),
                 ),
-
                 _buildFlightCarousel(),
-
                 const SizedBox(height: 20),
                 SizedBox(
                   height: 40,
@@ -1528,13 +1591,15 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: 5,
                     itemBuilder: (context, index) {
-                      bool isSelected = _selectedDayIndex == index;
+                      final isSelected = _selectedDayIndex == index;
                       return GestureDetector(
-                        onTap: () => _pageController.animateToPage(
-                          index,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        ),
+                        onTap: () {
+                          _pageController.animateToPage(
+                            index,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           margin: const EdgeInsets.only(right: 12),
@@ -1565,29 +1630,23 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     },
                   ),
                 ),
-
                 const SizedBox(height: 10),
-
                 Expanded(
                   child: Stack(
                     children: [
                       PageView.builder(
                         controller: _pageController,
                         itemCount: 5,
-                        onPageChanged: (index) {
-                          setState(() {
-                            _selectedDayIndex = index;
-                          });
+                        onPageChanged: (i) {
+                          setState(() => _selectedDayIndex = i);
                         },
-                        itemBuilder: (context, index) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 60),
-                            child: DayItineraryWidget(
-                              dayIndex: index,
-                              onAddPressed: _addNewActivity,
-                            ),
-                          );
-                        },
+                        itemBuilder: (_, i) => Padding(
+                          padding: const EdgeInsets.only(bottom: 60),
+                          child: DayItineraryWidget(
+                            dayIndex: i,
+                            onAddPressed: _addNewActivity,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -1595,7 +1654,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               ],
             ),
           ),
-
           Align(
             alignment: Alignment.bottomCenter,
             child: _buildExpandableTools(),
@@ -1605,6 +1663,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// 8. DayItineraryWidget
+// ---------------------------------------------------------------------------
 
 class DayItineraryWidget extends StatelessWidget {
   final int dayIndex;
@@ -1616,32 +1678,49 @@ class DayItineraryWidget extends StatelessWidget {
     required this.onAddPressed,
   });
 
+  int _timeToMinutes(String t) {
+    try {
+      final parts = t.split(':');
+      final h = int.parse(parts[0]);
+      final m = parts.length > 1 ? int.parse(parts[1]) : 0;
+      return h * 60 + m;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 取得目前使用者的 UID
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final fs = FirestoreService(user.uid);
 
     return Stack(
       children: [
-        StreamBuilder<QuerySnapshot>(
-          // 修改：只讀取該使用者的行程
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(uid)
-              .collection('activities')
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: fs.activities
               .where('dayIndex', isEqualTo: dayIndex)
               .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) return const Center(child: Text('Error'));
-            if (!snapshot.hasData)
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return const Center(child: Text('Error'));
+            }
+            if (!snap.hasData) {
               return const Center(child: CircularProgressIndicator());
+            }
 
-            List<Activity> activities = snapshot.data!.docs
-                .map((doc) => Activity.fromFirestore(doc))
+            var acts = snap.data!.docs
+                .map((d) => Activity.fromFirestore(d))
                 .toList();
-            activities.sort((a, b) => a.time.compareTo(b.time));
 
-            if (activities.isEmpty) {
+            acts.sort(
+              (a, b) =>
+                  _timeToMinutes(a.time).compareTo(_timeToMinutes(b.time)),
+            );
+
+            if (acts.isEmpty) {
               return const Center(
                 child: Text('尚無行程', style: TextStyle(color: Colors.grey)),
               );
@@ -1649,10 +1728,13 @@ class DayItineraryWidget extends StatelessWidget {
 
             return ListView.builder(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-              itemCount: activities.length,
-              itemBuilder: (context, index) {
-                final activity = activities[index];
-                return _buildActivityCard(context, activity);
+              itemCount: acts.length,
+              itemBuilder: (context, i) {
+                final a = acts[i];
+                return KeyedSubtree(
+                  key: ValueKey(a.id),
+                  child: _buildActivityCard(context, a),
+                );
               },
             );
           },
@@ -1671,26 +1753,21 @@ class DayItineraryWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildActivityCard(BuildContext context, Activity activity) {
+  Widget _buildActivityCard(BuildContext context, Activity a) {
+    final user = FirebaseAuth.instance.currentUser;
+    final fs = FirestoreService(user!.uid);
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ActivityDetailPage(
-              activity: activity,
-              onSave: (updated) => FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(FirebaseAuth.instance.currentUser!.uid)
-                  .collection('activities')
-                  .doc(updated.id)
-                  .update(updated.toMap()),
-              onDelete: () => FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(FirebaseAuth.instance.currentUser!.uid)
-                  .collection('activities')
-                  .doc(activity.id)
-                  .delete(),
+            builder: (_) => ActivityDetailPage(
+              activity: a,
+              onSave: (updated) {
+                fs.activities.doc(updated.id).update(updated.toMap());
+              },
+              onDelete: () => fs.activities.doc(a.id).delete(),
             ),
           ),
         );
@@ -1714,7 +1791,7 @@ class DayItineraryWidget extends StatelessWidget {
               Container(
                 width: 6,
                 decoration: BoxDecoration(
-                  color: _getTypeColor(activity.type),
+                  color: _getTypeColor(a.type),
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(12),
                     bottomLeft: Radius.circular(12),
@@ -1731,16 +1808,16 @@ class DayItineraryWidget extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            activity.time,
+                            a.time,
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                               color: Color(0xFF9E8B6E),
                             ),
                           ),
-                          if (activity.cost > 0)
+                          if (a.cost > 0)
                             Text(
-                              '¥${activity.cost.toInt()}',
+                              '¥${a.cost.toInt()}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Colors.grey,
@@ -1750,13 +1827,13 @@ class DayItineraryWidget extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        activity.title,
+                        a.title,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      if (activity.location.isNotEmpty)
+                      if (a.location.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Row(
@@ -1768,10 +1845,10 @@ class DayItineraryWidget extends StatelessWidget {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                activity.location,
+                                a.location,
                                 style: const TextStyle(
-                                  color: Colors.grey,
                                   fontSize: 12,
+                                  color: Colors.grey,
                                 ),
                               ),
                             ],
@@ -1803,6 +1880,10 @@ class DayItineraryWidget extends StatelessWidget {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// 9. ActivityDetailPage
+// ---------------------------------------------------------------------------
 
 class ActivityDetailPage extends StatefulWidget {
   final Activity activity;
@@ -1895,7 +1976,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
               ],
             ),
             const SizedBox(height: 20),
-            DropdownButtonFormField(
+            DropdownButtonFormField<ActivityType>(
               value: _type,
               items: ActivityType.values
                   .map(
@@ -1905,7 +1986,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                     ),
                   )
                   .toList(),
-              onChanged: (v) => setState(() => _type = v!),
+              onChanged: (v) => setState(() => _type = v ?? _type),
             ),
             const SizedBox(height: 20),
             TextField(
@@ -1947,10 +2028,16 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 10. MapListPage
+// ---------------------------------------------------------------------------
+
 class MapListPage extends StatelessWidget {
-  const MapListPage({super.key});
+  final FirestoreService firestoreService;
+  const MapListPage({super.key, required this.firestoreService});
+
   Future<void> _openMap(String loc) async {
-    final Uri url = Uri.parse(
+    final url = Uri.parse(
       'https://www.google.com/maps/dir/?api=1&destination=$loc',
     );
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -1960,33 +2047,28 @@ class MapListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 取得 UID
-    final uid = FirebaseAuth.instance.currentUser!.uid;
     return Scaffold(
       appBar: AppBar(title: const Text('地圖導航'), backgroundColor: Colors.green),
-      body: StreamBuilder<QuerySnapshot>(
-        // 修改：只讀取該使用者的行程
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .collection('activities')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData)
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: firestoreService.activities.snapshots(),
+        builder: (context, snap) {
+          if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
-          var docs = snapshot.data!.docs
-              .where((d) => (d.data() as Map)['location']?.isNotEmpty ?? false)
+          }
+          final docs = snap.data!.docs
+              .where((d) => (d.data()['location'] ?? '').toString().isNotEmpty)
               .toList();
+
           return ListView.builder(
             itemCount: docs.length,
             itemBuilder: (c, i) {
-              var d = docs[i].data() as Map;
+              final data = docs[i].data();
               return ListTile(
                 leading: const Icon(Icons.map, color: Colors.red),
-                title: Text(d['title']),
-                subtitle: Text(d['location']),
+                title: Text(data['title'] ?? ''),
+                subtitle: Text(data['location'] ?? ''),
                 trailing: const Icon(Icons.directions),
-                onTap: () => _openMap(d['location']),
+                onTap: () => _openMap(data['location']),
               );
             },
           );
@@ -1996,8 +2078,14 @@ class MapListPage extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 11. 分帳 Dialog
+// ---------------------------------------------------------------------------
+
 class AdvancedSplitBillDialog extends StatefulWidget {
-  const AdvancedSplitBillDialog({super.key});
+  final FirestoreService firestoreService;
+  const AdvancedSplitBillDialog({super.key, required this.firestoreService});
+
   @override
   State<AdvancedSplitBillDialog> createState() =>
       _AdvancedSplitBillDialogState();
@@ -2008,12 +2096,9 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   List<String> people = [];
   final TextEditingController _c = TextEditingController();
   final TextEditingController _totalC = TextEditingController();
-  // 修改：讀寫路徑為 users/{uid}/tools/bill_data
-  DocumentReference get _billRef => FirebaseFirestore.instance
-      .collection('users')
-      .doc(FirebaseAuth.instance.currentUser!.uid)
-      .collection('tools')
-      .doc('bill_data');
+
+  DocumentReference<Map<String, dynamic>> get _billRef =>
+      widget.firestoreService.billData;
 
   @override
   void initState() {
@@ -2023,18 +2108,16 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
 
   Future<void> _loadData() async {
     try {
-      DocumentSnapshot doc = await _billRef.get();
+      final doc = await _billRef.get();
       if (doc.exists) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        final data = doc.data()!;
         setState(() {
           total = (data['total'] ?? 0).toDouble();
           people = List<String>.from(data['people'] ?? []);
           _totalC.text = total == 0 ? '' : total.toStringAsFixed(0);
         });
       } else {
-        setState(() {
-          people = ['我'];
-        });
+        setState(() => people = ['我']);
       }
     } catch (e) {
       print('Load bill error: $e');
@@ -2047,7 +2130,7 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
 
   @override
   Widget build(BuildContext context) {
-    double share = people.isNotEmpty ? total / people.length : 0;
+    final share = people.isNotEmpty ? total / people.length : 0;
     return AlertDialog(
       title: const Text('分帳神器 (自動記憶)'),
       content: SingleChildScrollView(
@@ -2140,8 +2223,13 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 12. PackingListPage
+// ---------------------------------------------------------------------------
+
 class PackingListPage extends StatefulWidget {
   const PackingListPage({super.key});
+
   @override
   State<PackingListPage> createState() => _PackingListPageState();
 }
@@ -2163,8 +2251,8 @@ class _PackingListPageState extends State<PackingListPage> {
     '男生': ['刮鬍刀', '髮蠟'],
     '女生': ['化妝品', '卸妝油', '生理用品', '電棒捲'],
   };
-  final Map<String, bool> _checkedItems = {};
-  final TextEditingController _addItemController = TextEditingController();
+  final Map<String, bool> _checked = {};
+  final TextEditingController _addC = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -2199,31 +2287,31 @@ class _PackingListPageState extends State<PackingListPage> {
     );
   }
 
-  Widget _buildList(String category) {
-    List<String> items = _categories[category] ?? [];
+  Widget _buildList(String cat) {
+    final items = _categories[cat] ?? [];
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(8.0),
+          padding: const EdgeInsets.all(8),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
-                  controller: _addItemController,
+                  controller: _addC,
                   decoration: InputDecoration(
-                    hintText: '新增到 $category',
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    hintText: '新增到 $cat',
                     border: const OutlineInputBorder(),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
                   ),
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.add),
                 onPressed: () {
-                  if (_addItemController.text.isNotEmpty) {
+                  if (_addC.text.isNotEmpty) {
                     setState(() {
-                      _categories[category]!.add(_addItemController.text);
-                      _addItemController.clear();
+                      _categories[cat]!.add(_addC.text);
+                      _addC.clear();
                     });
                   }
                 },
@@ -2234,19 +2322,19 @@ class _PackingListPageState extends State<PackingListPage> {
         Expanded(
           child: ListView.builder(
             itemCount: items.length,
-            itemBuilder: (context, index) {
-              String item = items[index];
-              bool isChecked = _checkedItems[item] ?? false;
+            itemBuilder: (_, i) {
+              final item = items[i];
+              final checked = _checked[item] ?? false;
               return CheckboxListTile(
                 title: Text(
                   item,
                   style: TextStyle(
-                    decoration: isChecked ? TextDecoration.lineThrough : null,
-                    color: isChecked ? Colors.grey : Colors.black,
+                    decoration: checked ? TextDecoration.lineThrough : null,
+                    color: checked ? Colors.grey : Colors.black,
                   ),
                 ),
-                value: isChecked,
-                onChanged: (val) => setState(() => _checkedItems[item] = val!),
+                value: checked,
+                onChanged: (v) => setState(() => _checked[item] = v ?? false),
               );
             },
           ),
@@ -2256,8 +2344,13 @@ class _PackingListPageState extends State<PackingListPage> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 13. ShoppingListPage
+// ---------------------------------------------------------------------------
+
 class ShoppingListPage extends StatefulWidget {
   const ShoppingListPage({super.key});
+
   @override
   State<ShoppingListPage> createState() => _ShoppingListPageState();
 }
@@ -2265,6 +2358,7 @@ class ShoppingListPage extends StatefulWidget {
 class _ShoppingListPageState extends State<ShoppingListPage> {
   final List<String> _list = ['仙台牛舌', '荻之月', '喜久福', '伊達政宗周邊'];
   final TextEditingController _c = TextEditingController();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2288,11 +2382,12 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
                     size: 30,
                   ),
                   onPressed: () {
-                    if (_c.text.isNotEmpty)
+                    if (_c.text.isNotEmpty) {
                       setState(() {
                         _list.add(_c.text);
                         _c.clear();
                       });
+                    }
                   },
                 ),
               ],
@@ -2317,23 +2412,28 @@ class _ShoppingListPageState extends State<ShoppingListPage> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 14. TranslatorPage
+// ---------------------------------------------------------------------------
+
 class TranslatorPage extends StatefulWidget {
   const TranslatorPage({super.key});
+
   @override
   State<TranslatorPage> createState() => _TranslatorPageState();
 }
 
 class _TranslatorPageState extends State<TranslatorPage> {
-  // TTS
-  final FlutterTts flutterTts = FlutterTts();
+  final FlutterTts _tts = FlutterTts();
 
   final List<Map<String, String>> _list = [
     {'jp': 'トイレはどこですか？', 'zh': '廁所在哪裡？'},
     {'jp': 'これください', 'zh': '我要這個'},
     {'jp': 'チェックアウトを手伝ってください。', 'zh': '麻煩幫我結帳'},
   ];
-  final TextEditingController _j = TextEditingController(),
-      _z = TextEditingController();
+
+  final TextEditingController _j = TextEditingController();
+  final TextEditingController _z = TextEditingController();
 
   @override
   void initState() {
@@ -2342,13 +2442,13 @@ class _TranslatorPageState extends State<TranslatorPage> {
   }
 
   Future<void> _initTts() async {
-    await flutterTts.setLanguage("ja-JP");
-    await flutterTts.setSpeechRate(0.5);
-    await flutterTts.setVolume(1.0);
+    await _tts.setLanguage("ja-JP");
+    await _tts.setSpeechRate(0.5);
+    await _tts.setVolume(1.0);
   }
 
   Future<void> _speak(String text) async {
-    await flutterTts.speak(text);
+    await _tts.speak(text);
   }
 
   @override
@@ -2377,12 +2477,13 @@ class _TranslatorPageState extends State<TranslatorPage> {
                 IconButton(
                   icon: const Icon(Icons.add),
                   onPressed: () {
-                    if (_j.text.isNotEmpty)
+                    if (_j.text.isNotEmpty) {
                       setState(() {
                         _list.add({'jp': _j.text, 'zh': _z.text});
                         _j.clear();
                         _z.clear();
                       });
+                    }
                   },
                 ),
               ],
@@ -2391,24 +2492,27 @@ class _TranslatorPageState extends State<TranslatorPage> {
           Expanded(
             child: ListView.separated(
               itemCount: _list.length,
-              separatorBuilder: (c, i) => const Divider(),
-              itemBuilder: (c, i) => ListTile(
-                title: Text(
-                  _list[i]['jp']!,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
+              separatorBuilder: (_, __) => const Divider(),
+              itemBuilder: (_, i) {
+                final item = _list[i];
+                return ListTile(
+                  title: Text(
+                    item['jp']!,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                subtitle: Text(
-                  _list[i]['zh']!,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.volume_up, color: Colors.purple),
-                  onPressed: () => _speak(_list[i]['jp']!),
-                ),
-              ),
+                  subtitle: Text(
+                    item['zh']!,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.volume_up, color: Colors.purple),
+                    onPressed: () => _speak(item['jp']!),
+                  ),
+                );
+              },
             ),
           ),
         ],
