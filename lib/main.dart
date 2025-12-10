@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // 新增認證套件
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -35,7 +36,7 @@ void main() async {
   try {
     await Firebase.initializeApp(options: firebaseOptions);
     FirebaseAnalytics analytics = FirebaseAnalytics.instance;
-    await analytics.logAppOpen();
+    // await analytics.logAppOpen(); // Web環境有時會有問題，可視情況開啟
   } catch (e) {
     print("Firebase 初始化訊息: $e");
   }
@@ -43,7 +44,7 @@ void main() async {
 }
 
 // ---------------------------------------------------------------------------
-// 資料模型
+// 資料模型 (不變)
 // ---------------------------------------------------------------------------
 
 class FlightInfo {
@@ -119,11 +120,8 @@ class FlightInfo {
       return fullTime.substring(11, 16);
     }
 
-    // 取得表定時間
     String sDep = formatTime(json['dep_time']);
     String sArr = formatTime(json['arr_time']);
-
-    // 取得預計時間，如果 API 回傳 null，則用表定時間遞補 (代表準點)
     String eDep = formatTime(json['dep_estimated']);
     if (eDep.isEmpty) eDep = sDep;
 
@@ -138,7 +136,7 @@ class FlightInfo {
       estDep: eDep,
       terminal: json['dep_terminal'] ?? '-',
       gate: json['dep_gate'] ?? '-',
-      counter: '-', // API 不提供，預設為空
+      counter: '-',
       baggage: json['arr_baggage'] ?? '-',
       status: json['status'] ?? 'Active',
     );
@@ -204,22 +202,16 @@ class Activity {
 }
 
 // ---------------------------------------------------------------------------
-// 主程式 UI Setup
+// 主程式 UI Setup (新增認證狀態判斷)
 // ---------------------------------------------------------------------------
 class TohokuTripApp extends StatelessWidget {
   const TohokuTripApp({super.key});
-
-  static FirebaseAnalytics analytics = FirebaseAnalytics.instance;
-  static FirebaseAnalyticsObserver observer = FirebaseAnalyticsObserver(
-    analytics: analytics,
-  );
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'STARLUX Journey',
       debugShowCheckedModeBanner: false,
-      navigatorObservers: [observer],
       theme: ThemeData(
         primaryColor: const Color(0xFF9E8B6E),
         scaffoldBackgroundColor: const Color(0xFFF5F5F5),
@@ -231,11 +223,151 @@ class TohokuTripApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
-      home: const ElegantItineraryPage(),
+      // 使用 StreamBuilder 監聽登入狀態
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasData) {
+            return const ElegantItineraryPage(); // 已登入
+          }
+          return const LoginPage(); // 未登入
+        },
+      ),
     );
   }
 }
 
+// ---------------------------------------------------------------------------
+// 全新：登入/註冊頁面
+// ---------------------------------------------------------------------------
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLogin = true; // 切換登入或註冊
+  String _errorMessage = '';
+
+  Future<void> _submit() async {
+    setState(() => _errorMessage = '');
+    try {
+      if (_isLogin) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+      } else {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message ?? '發生錯誤';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF9E8B6E),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(30),
+          child: Card(
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(30),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.flight_takeoff,
+                    size: 60,
+                    color: Color(0xFF9E8B6E),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _isLogin ? '歡迎回來' : '建立帳號',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _emailController,
+                    decoration: const InputDecoration(
+                      labelText: '電子郵件',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  TextField(
+                    controller: _passwordController,
+                    decoration: const InputDecoration(
+                      labelText: '密碼',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.lock),
+                    ),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 10),
+                  if (_errorMessage.isNotEmpty)
+                    Text(
+                      _errorMessage,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF9E8B6E),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        _isLogin ? '登入' : '註冊',
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _isLogin = !_isLogin),
+                    child: Text(_isLogin ? '沒有帳號？點此註冊' : '已有帳號？點此登入'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 主頁面 (行程頁)
+// ---------------------------------------------------------------------------
 class ElegantItineraryPage extends StatefulWidget {
   const ElegantItineraryPage({super.key});
 
@@ -260,10 +392,47 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   bool _isToolsExpanded = false;
 
-  final CollectionReference _activitiesRef = FirebaseFirestore.instance
+  // ★★★ 關鍵修改：取得當前用戶 ID ★★★
+  String get uid => FirebaseAuth.instance.currentUser!.uid;
+
+  // ★★★ 關鍵修改：資料庫路徑改為 users/{uid}/... ★★★
+  CollectionReference get _activitiesRef => FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
       .collection('activities');
-  final CollectionReference _flightsRef = FirebaseFirestore.instance.collection(
-    'flights',
+  CollectionReference get _flightsRef => FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('flights');
+
+  // 預設靜態機票 (當資料庫沒資料時用)
+  final FlightInfo _defaultOutbound = FlightInfo(
+    id: 'default_out',
+    flightNo: 'JX862',
+    fromCode: 'TPE',
+    toCode: 'SDJ',
+    date: '16 JAN',
+    schedDep: '11:50',
+    schedArr: '16:00',
+    terminal: '1',
+    gate: 'B5',
+    counter: '-',
+    baggage: '05',
+    status: 'Scheduled',
+  );
+  final FlightInfo _defaultInbound = FlightInfo(
+    id: 'default_in',
+    flightNo: 'JX863',
+    fromCode: 'SDJ',
+    toCode: 'TPE',
+    date: '20 JAN',
+    schedDep: '17:30',
+    schedArr: '20:40',
+    terminal: 'I',
+    gate: '3',
+    counter: '-',
+    baggage: '06',
+    status: 'Scheduled',
   );
 
   @override
@@ -390,7 +559,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     _showFlightEditor(newFlight, isNew: true);
   }
 
-  // 查詢 API 並回傳資料的 Helper (優化版)
+  // 查詢 API 並回傳資料的 Helper
   Future<FlightInfo?> _fetchApiData(String flightNo) async {
     try {
       final url = Uri.parse(
@@ -401,8 +570,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         final jsonResponse = json.decode(response.body);
         if (jsonResponse['response'] != null &&
             (jsonResponse['response'] as List).isNotEmpty) {
-          // 這裡通常會回傳多筆資料 (包含過去幾天與未來幾天)
-          // 我們簡單取第一筆 (AirLabs 預設排序通常是最新的)
           return FlightInfo.fromApi(jsonResponse['response'][0]);
         }
       }
@@ -416,7 +583,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     final noC = TextEditingController(text: flight.flightNo);
     final dateC = TextEditingController(text: flight.date);
 
-    // 欄位控制器
     final fromC = TextEditingController(text: flight.fromCode);
     final toC = TextEditingController(text: flight.toCode);
     final depC = TextEditingController(text: flight.schedDep);
@@ -450,7 +616,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           ),
                         ),
                       ),
-                      // 日期欄位保留，但如果 API 抓到會更新
                       if (!isNew) ...[
                         const SizedBox(width: 8),
                         Expanded(
@@ -469,7 +634,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ),
                   const SizedBox(height: 10),
 
-                  // 鎖定狀態提示
                   const Divider(),
                   Row(
                     children: [
@@ -480,7 +644,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        isLocked ? "航班資訊已鎖定 (防止誤改)" : "請輸入航班號並同步",
+                        isLocked ? "航班資訊已鎖定" : "請輸入航班號並同步",
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.grey,
@@ -490,7 +654,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                   const SizedBox(height: 10),
 
-                  // 主要資訊 (鎖定)
                   Row(
                     children: [
                       Expanded(
@@ -547,16 +710,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  // 次要資訊 (部分鎖定)
                   Row(
                     children: [
-                      // 櫃檯通常 API 沒有，所以保持開放編輯
                       Expanded(
                         child: TextField(
                           controller: counterC,
                           decoration: const InputDecoration(
-                            labelText: '報到櫃台',
-                            hintText: '需手動輸入',
+                            labelText: '報到櫃台 (可手動)',
                           ),
                         ),
                       ),
@@ -589,7 +749,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // 行李轉盤有時候 API 會有，但常常變動，建議也可以保持開放，這裡先設為跟隨鎖定但可手動解鎖
                       Expanded(
                         child: TextField(
                           controller: bagC,
@@ -603,7 +762,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               ),
             ),
             actions: [
-              // 搜尋按鈕
               if (!isLocked)
                 TextButton.icon(
                   icon: const Icon(Icons.sync),
@@ -614,19 +772,18 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     setDialogState(() {
                       isFetching = false;
                       if (apiData != null) {
-                        isLocked = true; // 鎖定
+                        isLocked = true;
                         fromC.text = apiData.fromCode;
                         toC.text = apiData.toCode;
                         depC.text = apiData.schedDep;
                         arrC.text = apiData.schedArr;
                         termC.text = apiData.terminal;
                         gateC.text = apiData.gate;
-                        // 嘗試填入行李，如果沒有則留空
                         if (apiData.baggage != '-') bagC.text = apiData.baggage;
-                        dateC.text = apiData.date; // 更新日期
+                        dateC.text = apiData.date;
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('找不到航班，請檢查代號')),
+                          const SnackBar(content: Text('未找到航班資料，請手動輸入')),
                         );
                       }
                     });
@@ -640,8 +797,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
               ElevatedButton(
                 onPressed: () {
-                  // 儲存邏輯：如果 API 有抓到 estDep 就用，沒有就用 schedDep
-                  // 但這裡是存入 DB，所以主要存表定
+                  // 儲存邏輯：如果有預計時間就用預計，沒有就用表定
+                  String estDep = depC.text; // 預設為表定
+
                   final data = FlightInfo(
                     id: isNew ? '' : flight.id,
                     flightNo: noC.text,
@@ -650,7 +808,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     date: dateC.text,
                     schedDep: depC.text,
                     schedArr: arrC.text,
-                    estDep: depC.text, // 預設預計時間=表定時間
+                    estDep: estDep,
                     terminal: termC.text,
                     gate: gateC.text,
                     counter: counterC.text,
@@ -675,7 +833,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   void _editFlight(FlightInfo flight) {
-    // 編輯時通常是為了改櫃檯或行李，所以直接顯示編輯窗，但核心資料不建議大改
     _showFlightEditor(flight, isNew: false);
   }
 
@@ -788,43 +945,23 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       child: StreamBuilder<QuerySnapshot>(
         stream: _flightsRef.snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData)
-            return const Center(child: CircularProgressIndicator());
+          // 如果正在讀取，或資料庫是空的，顯示預設的靜態機票
+          List<FlightInfo> flights = [];
 
-          final flightDocs = snapshot.data!.docs;
-
-          if (flightDocs.isEmpty) {
-            return Center(
-              child: GestureDetector(
-                onTap: _addNewFlight,
-                child: Container(
-                  width: 300,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_circle_outline,
-                        size: 40,
-                        color: Colors.grey,
-                      ),
-                      SizedBox(height: 8),
-                      Text("新增您的第一張機票"),
-                    ],
-                  ),
-                ),
-              ),
-            );
+          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+            flights = snapshot.data!.docs
+                .map((doc) => FlightInfo.fromFirestore(doc))
+                .toList();
+          } else {
+            // 預設機票
+            flights = [_defaultOutbound, _defaultInbound];
           }
 
           return PageView.builder(
             controller: PageController(viewportFraction: 0.92),
-            itemCount: flightDocs.length + 1,
+            itemCount: flights.length + 1, // 多一頁給新增按鈕
             itemBuilder: (context, index) {
-              if (index == flightDocs.length) {
+              if (index == flights.length) {
                 return GestureDetector(
                   onTap: _addNewFlight,
                   child: Container(
@@ -840,8 +977,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                 );
               }
-              final flight = FlightInfo.fromFirestore(flightDocs[index]);
-              return _buildCompactFlightCard(flight);
+              return _buildCompactFlightCard(flights[index]);
             },
           );
         },
@@ -850,8 +986,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   Widget _buildCompactFlightCard(FlightInfo info) {
+    // 判斷是否為預設機票(不可編輯)
+    bool isDefault = info.id.startsWith('default');
+
     return GestureDetector(
-      onTap: () => _showFlightDetails(info),
+      onTap: () => isDefault ? null : _showFlightDetails(info),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 5),
         padding: const EdgeInsets.all(16),
@@ -890,7 +1029,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ),
                   ),
                 ),
-                // 如果有櫃台資訊就顯示，沒有則不顯示
                 if (info.counter != '-' && info.counter.isNotEmpty)
                   Text(
                     '櫃台: ${info.counter}',
@@ -920,8 +1058,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 _buildAirportCode(info.toCode, info.schedArr),
               ],
             ),
-            // 顯示預計時間 (若與表定不同或有值)
-            if (info.estDep.isNotEmpty)
+            if (info.estDep.isNotEmpty && info.estDep != info.schedDep)
               Padding(
                 padding: const EdgeInsets.only(top: 5),
                 child: Text(
@@ -1191,6 +1328,15 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           ),
                           _buildToolIcon(Icons.translate, '翻譯', Colors.purple),
                           _buildToolIcon(Icons.map, '地圖', Colors.green),
+                          // 登出按鈕
+                          _buildToolIcon(
+                            Icons.logout,
+                            '登出',
+                            Colors.red,
+                            onTap: () async {
+                              await FirebaseAuth.instance.signOut();
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -1255,9 +1401,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  Widget _buildToolIcon(IconData icon, String label, Color color) {
+  Widget _buildToolIcon(
+    IconData icon,
+    String label,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
     return GestureDetector(
-      onTap: () => _handleToolTap(label),
+      onTap: onTap ?? () => _handleToolTap(label),
       child: Container(
         width: 65,
         margin: const EdgeInsets.only(right: 12),
@@ -1467,10 +1618,16 @@ class DayItineraryWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 取得目前使用者的 UID
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
     return Stack(
       children: [
         StreamBuilder<QuerySnapshot>(
+          // 修改：只讀取該使用者的行程
           stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
               .collection('activities')
               .where('dayIndex', isEqualTo: dayIndex)
               .snapshots(),
@@ -1523,10 +1680,14 @@ class DayItineraryWidget extends StatelessWidget {
             builder: (context) => ActivityDetailPage(
               activity: activity,
               onSave: (updated) => FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(FirebaseAuth.instance.currentUser!.uid)
                   .collection('activities')
                   .doc(updated.id)
                   .update(updated.toMap()),
               onDelete: () => FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(FirebaseAuth.instance.currentUser!.uid)
                   .collection('activities')
                   .doc(activity.id)
                   .delete(),
@@ -1799,10 +1960,17 @@ class MapListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 取得 UID
+    final uid = FirebaseAuth.instance.currentUser!.uid;
     return Scaffold(
       appBar: AppBar(title: const Text('地圖導航'), backgroundColor: Colors.green),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('activities').snapshots(),
+        // 修改：只讀取該使用者的行程
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('activities')
+            .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
@@ -1840,7 +2008,10 @@ class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
   List<String> people = [];
   final TextEditingController _c = TextEditingController();
   final TextEditingController _totalC = TextEditingController();
-  final DocumentReference _billRef = FirebaseFirestore.instance
+  // 修改：讀寫路徑為 users/{uid}/tools/bill_data
+  DocumentReference get _billRef => FirebaseFirestore.instance
+      .collection('users')
+      .doc(FirebaseAuth.instance.currentUser!.uid)
       .collection('tools')
       .doc('bill_data');
 
