@@ -10,6 +10,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_tts/flutter_tts.dart'; // 新增語音套件
 
 // ---------------------------------------------------------------------------
 // 1. Firebase 設定
@@ -27,7 +28,8 @@ const firebaseOptions = FirebaseOptions(
 // 2. API Keys
 // ---------------------------------------------------------------------------
 const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc";
-const String _flightApiKey = "73d5e5ca-a0eb-462d-8a91-62e6a7657cb9";
+const String _flightApiKey =
+    "73d5e5ca-a0eb-462d-8a91-62e6a7657cb9"; // 您的 AirLabs Key
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +47,6 @@ void main() async {
 // 資料模型
 // ---------------------------------------------------------------------------
 
-// 升級版航班模型 (支援 Firestore 存取)
 class FlightInfo {
   String id;
   String flightNo;
@@ -54,9 +55,10 @@ class FlightInfo {
   String date;
   String schedDep;
   String schedArr;
+  String estDep; // 即時預計起飛
   String terminal;
   String gate;
-  String counter; // 新增：報到櫃台
+  String counter;
   String baggage;
   String status;
 
@@ -68,6 +70,7 @@ class FlightInfo {
     required this.date,
     required this.schedDep,
     required this.schedArr,
+    this.estDep = '',
     required this.terminal,
     required this.gate,
     required this.counter,
@@ -83,6 +86,7 @@ class FlightInfo {
       'date': date,
       'schedDep': schedDep,
       'schedArr': schedArr,
+      'estDep': estDep,
       'terminal': terminal,
       'gate': gate,
       'counter': counter,
@@ -101,11 +105,36 @@ class FlightInfo {
       date: data['date'] ?? '',
       schedDep: data['schedDep'] ?? '',
       schedArr: data['schedArr'] ?? '',
+      estDep: data['estDep'] ?? '', // 讀取預計時間
       terminal: data['terminal'] ?? '-',
       gate: data['gate'] ?? '-',
       counter: data['counter'] ?? '-',
       baggage: data['baggage'] ?? '-',
-      status: data['status'] ?? 'Scheduled',
+      status: data['status'] ?? 'Plan',
+    );
+  }
+
+  // 從 API JSON 轉換 (用於即時抓取)
+  factory FlightInfo.fromApi(Map<String, dynamic> json) {
+    String formatTime(String? fullTime) {
+      if (fullTime == null || fullTime.length < 16) return '';
+      return fullTime.substring(11, 16);
+    }
+
+    return FlightInfo(
+      id: '',
+      flightNo: json['flight_iata'] ?? '',
+      fromCode: json['dep_iata'] ?? '',
+      toCode: json['arr_iata'] ?? '',
+      date: json['dep_time']?.toString().substring(5, 10) ?? '',
+      schedDep: formatTime(json['dep_time']),
+      schedArr: formatTime(json['arr_time']),
+      estDep: formatTime(json['dep_estimated']), // 抓取預計時間
+      terminal: json['dep_terminal'] ?? '-',
+      gate: json['dep_gate'] ?? '-',
+      counter: '-', // API 通常不提供櫃台，需手動或維持預設
+      baggage: json['arr_baggage'] ?? '-',
+      status: json['status'] ?? 'Active',
     );
   }
 }
@@ -118,7 +147,7 @@ class Activity {
   String title;
   String location;
   String notes;
-  String detailedInfo; // 新增：詳細資訊(景點介紹)
+  String detailedInfo;
   double cost;
   ActivityType type;
   List<String> imageUrls;
@@ -227,7 +256,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
-  // 新增：航班集合
   final CollectionReference _flightsRef = FirebaseFirestore.instance.collection(
     'flights',
   );
@@ -337,14 +365,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // 新增航班的函式
+  // --- 機票管理功能 ---
   void _addNewFlight() {
     FlightInfo newFlight = FlightInfo(
       id: '',
       flightNo: 'JX',
       fromCode: 'TPE',
       toCode: 'SDJ',
-      date: 'DATE',
+      date: '16 JAN',
       schedDep: '00:00',
       schedArr: '00:00',
       terminal: '1',
@@ -356,9 +384,29 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     _showFlightEditor(newFlight, isNew: true);
   }
 
-  // 編輯航班
   void _editFlight(FlightInfo flight) {
     _showFlightEditor(flight, isNew: false);
+  }
+
+  // 查詢 API 並回傳資料的 Helper
+  Future<FlightInfo?> _fetchApiData(String flightNo) async {
+    try {
+      final url = Uri.parse(
+        'https://airlabs.co/api/v9/schedules?flight_iata=$flightNo&api_key=$_flightApiKey',
+      );
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        if (jsonResponse['response'] != null &&
+            (jsonResponse['response'] as List).isNotEmpty) {
+          // 找到資料，回傳第一筆
+          return FlightInfo.fromApi(jsonResponse['response'][0]);
+        }
+      }
+    } catch (e) {
+      print("API Fetch Error: $e");
+    }
+    return null;
   }
 
   void _showFlightEditor(FlightInfo flight, {required bool isNew}) {
@@ -370,154 +418,202 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     final arrC = TextEditingController(text: flight.schedArr);
     final termC = TextEditingController(text: flight.terminal);
     final gateC = TextEditingController(text: flight.gate);
-    final counterC = TextEditingController(text: flight.counter); // 報到櫃台
+    final counterC = TextEditingController(text: flight.counter);
     final bagC = TextEditingController(text: flight.baggage);
+
+    // 狀態變數：是否正在查詢 API
+    bool isFetching = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isNew ? '新增機票' : '編輯機票'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
+      barrierDismissible: false, // 防止誤觸關閉
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(isNew ? '新增機票 (自動同步)' : '編輯機票'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: noC,
-                      decoration: const InputDecoration(
-                        labelText: '航班號 (JX862)',
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: noC,
+                          decoration: const InputDecoration(
+                            labelText: '航班號 (ex: JX862)',
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: dateC,
-                      decoration: const InputDecoration(
-                        labelText: '日期 (16 JAN)',
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: dateC,
+                          decoration: const InputDecoration(
+                            labelText: '日期 (ex: 16 JAN)',
+                          ),
+                        ),
                       ),
+                    ],
+                  ),
+                  if (isFetching)
+                    const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: LinearProgressIndicator(color: Color(0xFF9E8B6E)),
                     ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: fromC,
+                          decoration: const InputDecoration(labelText: '出發'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: toC,
+                          decoration: const InputDecoration(labelText: '抵達'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: depC,
+                          decoration: const InputDecoration(labelText: '起飛時間'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: arrC,
+                          decoration: const InputDecoration(labelText: '抵達時間'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "--- 以下資訊可自動抓取 ---",
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: counterC,
+                          decoration: const InputDecoration(labelText: '報到櫃台'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: termC,
+                          decoration: const InputDecoration(labelText: '航廈'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: gateC,
+                          decoration: const InputDecoration(labelText: '登機門'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: bagC,
+                          decoration: const InputDecoration(labelText: '行李轉盤'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: fromC,
-                      decoration: const InputDecoration(labelText: '出發 (TPE)'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: toC,
-                      decoration: const InputDecoration(labelText: '抵達 (SDJ)'),
-                    ),
-                  ),
-                ],
+            ),
+            actions: [
+              if (!isNew)
+                TextButton(
+                  onPressed: () {
+                    _flightsRef.doc(flight.id).delete();
+                    Navigator.pop(context);
+                  },
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('刪除'),
+                ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: depC,
-                      decoration: const InputDecoration(labelText: '起飛時間'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: arrC,
-                      decoration: const InputDecoration(labelText: '抵達時間'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: counterC,
-                      decoration: const InputDecoration(labelText: '報到櫃台'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: termC,
-                      decoration: const InputDecoration(labelText: '航廈'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: gateC,
-                      decoration: const InputDecoration(labelText: '登機門'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: bagC,
-                      decoration: const InputDecoration(labelText: '行李轉盤'),
-                    ),
-                  ),
-                ],
+              ElevatedButton(
+                onPressed: () async {
+                  // 1. 顯示讀取中
+                  setDialogState(() => isFetching = true);
+
+                  // 2. 嘗試去 API 抓取最新資料
+                  FlightInfo? apiData = await _fetchApiData(noC.text);
+
+                  // 3. 準備要存的資料
+                  String finalDep = depC.text;
+                  String finalArr = arrC.text;
+                  String finalEstDep = ''; // 即時資訊
+                  String finalTerm = termC.text;
+                  String finalGate = gateC.text;
+                  String finalBag = bagC.text;
+                  String finalStatus = 'Saved';
+
+                  // 如果 API 有資料，覆蓋空白欄位 (或優先使用 API 數據)
+                  if (apiData != null) {
+                    if (finalDep.isEmpty || finalDep == '00:00')
+                      finalDep = apiData.schedDep;
+                    if (finalArr.isEmpty || finalArr == '00:00')
+                      finalArr = apiData.schedArr;
+                    finalEstDep = apiData.estDep; // 儲存預計時間
+                    finalTerm = apiData.terminal;
+                    finalGate = apiData.gate;
+                    finalBag = apiData.baggage;
+                    finalStatus = apiData.status;
+                  }
+
+                  final data = FlightInfo(
+                    id: isNew ? '' : flight.id,
+                    flightNo: noC.text,
+                    fromCode: fromC.text,
+                    toCode: toC.text,
+                    date: dateC.text,
+                    schedDep: finalDep,
+                    schedArr: finalArr,
+                    estDep: finalEstDep,
+                    terminal: finalTerm,
+                    gate: finalGate,
+                    counter: counterC.text,
+                    baggage: finalBag,
+                    status: finalStatus,
+                  ).toMap();
+
+                  if (isNew) {
+                    _flightsRef.add(data);
+                  } else {
+                    _flightsRef.doc(flight.id).update(data);
+                  }
+
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: Text(isNew ? '同步並儲存' : '儲存'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          if (!isNew)
-            TextButton(
-              onPressed: () {
-                _flightsRef.doc(flight.id).delete();
-                Navigator.pop(context);
-              },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('刪除'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final data = FlightInfo(
-                id: isNew ? '' : flight.id,
-                flightNo: noC.text,
-                fromCode: fromC.text,
-                toCode: toC.text,
-                date: dateC.text,
-                schedDep: depC.text,
-                schedArr: arrC.text,
-                terminal: termC.text,
-                gate: gateC.text,
-                counter: counterC.text,
-                baggage: bagC.text,
-                status: 'Saved',
-              ).toMap();
-
-              if (isNew) {
-                _flightsRef.add(data);
-              } else {
-                _flightsRef.doc(flight.id).update(data);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('儲存'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -553,8 +649,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     double rate = 0.215;
     double jpy = 0;
     double twd = 0;
-    bool isLoading = true;
-
     showDialog(
       context: context,
       builder: (context) {
@@ -572,7 +666,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     if (context.mounted) {
                       setState(() {
                         rate = (data['rates']['TWD']).toDouble();
-                        isLoading = false;
                         twd = jpy * rate;
                       });
                     }
@@ -580,29 +673,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 }
               } catch (e) {
                 print('Currency API Error: $e');
-                setState(() => isLoading = false);
               }
             }
 
-            if (isLoading) fetchRate();
+            fetchRate();
 
             return AlertDialog(
-              title: Row(
-                children: [
-                  const Icon(Icons.currency_exchange, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  const Text('即時匯率試算'),
-                  if (isLoading)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 10),
-                      child: SizedBox(
-                        width: 15,
-                        height: 15,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                ],
-              ),
+              title: const Text('即時匯率試算'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -617,7 +694,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       twd = jpy * rate;
                     }),
                   ),
-                  const SizedBox(height: 15),
+                  const SizedBox(height: 10),
                   Text(
                     '約 NT\$ ${twd.toStringAsFixed(0)}',
                     style: const TextStyle(
@@ -626,19 +703,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       color: Color(0xFF9E8B6E),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '目前匯率: 1 JPY ≈ ${rate.toStringAsFixed(4)} TWD',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('關閉'),
-                ),
-              ],
             );
           },
         );
@@ -653,10 +719,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- Widget 構建: 動態機票卡片 (Firestore) ---
+  // --- Widget 構建: 動態機票卡片 ---
   Widget _buildFlightCarousel() {
     return Container(
-      height: 180, // 加高一點以容納櫃檯資訊
+      height: 180,
       margin: const EdgeInsets.symmetric(vertical: 10),
       child: StreamBuilder<QuerySnapshot>(
         stream: _flightsRef.snapshots(),
@@ -666,7 +732,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
           final flightDocs = snapshot.data!.docs;
 
-          // 如果沒有資料，顯示新增按鈕
           if (flightDocs.isEmpty) {
             return Center(
               child: GestureDetector(
@@ -694,10 +759,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             );
           }
 
-          // 有資料則顯示列表，最後加一個新增按鈕
           return PageView.builder(
             controller: PageController(viewportFraction: 0.92),
-            itemCount: flightDocs.length + 1, // 多一頁給新增按鈕
+            itemCount: flightDocs.length + 1,
             itemBuilder: (context, index) {
               if (index == flightDocs.length) {
                 return GestureDetector(
@@ -726,7 +790,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   Widget _buildCompactFlightCard(FlightInfo info) {
     return GestureDetector(
-      onTap: () => _editFlight(info), // 點擊可編輯/刪除
+      onTap: () => _editFlight(info),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 5),
         padding: const EdgeInsets.all(16),
@@ -794,6 +858,19 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 _buildAirportCode(info.toCode, info.schedArr),
               ],
             ),
+            // 顯示即時預計時間 (若有)
+            if (info.estDep.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  '預計起飛: ${info.estDep}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1385,7 +1462,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   late TextEditingController _locC;
   late TextEditingController _costC;
   late TextEditingController _noteC;
-  late TextEditingController _detailC; // 詳細資訊
+  late TextEditingController _detailC;
   late ActivityType _type;
 
   @override
@@ -1873,6 +1950,9 @@ class TranslatorPage extends StatefulWidget {
 }
 
 class _TranslatorPageState extends State<TranslatorPage> {
+  // TTS 實體
+  final FlutterTts flutterTts = FlutterTts();
+
   final List<Map<String, String>> _list = [
     {'jp': 'トイレはどこですか？', 'zh': '廁所在哪裡？'},
     {'jp': 'これください', 'zh': '我要這個'},
@@ -1881,13 +1961,22 @@ class _TranslatorPageState extends State<TranslatorPage> {
   final TextEditingController _j = TextEditingController(),
       _z = TextEditingController();
 
-  Future<void> _playVoice(String text) async {
-    final url = Uri.parse(
-      'https://translate.google.com/?sl=ja&tl=zh-TW&text=${Uri.encodeComponent(text)}&op=translate',
-    );
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      html.window.open(url.toString(), '_blank');
-    }
+  @override
+  void initState() {
+    super.initState();
+    _initTts();
+  }
+
+  // 初始化 TTS
+  Future<void> _initTts() async {
+    await flutterTts.setLanguage("ja-JP"); // 設定為日文
+    await flutterTts.setSpeechRate(0.5); // 設定語速
+    await flutterTts.setVolume(1.0); // 設定音量
+  }
+
+  // 播放功能
+  Future<void> _speak(String text) async {
+    await flutterTts.speak(text);
   }
 
   @override
@@ -1945,7 +2034,7 @@ class _TranslatorPageState extends State<TranslatorPage> {
                 ),
                 trailing: IconButton(
                   icon: const Icon(Icons.volume_up, color: Colors.purple),
-                  onPressed: () => _playVoice(_list[i]['jp']!),
+                  onPressed: () => _speak(_list[i]['jp']!),
                 ),
               ),
             ),
