@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: sendai_trip
+    env: docker
+    repo: https://github.com/xsw445566/sendai_trip_v2
+    branch: main
+    plan: free
+    autoDeploy: true
+    envVars: []
