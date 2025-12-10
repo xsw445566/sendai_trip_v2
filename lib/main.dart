@@ -45,60 +45,67 @@ void main() async {
 // 資料模型
 // ---------------------------------------------------------------------------
 
+// 升級版航班模型 (支援 Firestore 存取)
 class FlightInfo {
+  String id;
   String flightNo;
   String fromCode;
-  String fromCity;
   String toCode;
-  String toCity;
   String date;
   String schedDep;
   String schedArr;
-  String estDep;
-  String estArr;
   String terminal;
   String gate;
+  String counter; // 新增：報到櫃台
   String baggage;
   String status;
 
   FlightInfo({
+    required this.id,
     required this.flightNo,
     required this.fromCode,
-    required this.fromCity,
     required this.toCode,
-    required this.toCity,
     required this.date,
     required this.schedDep,
     required this.schedArr,
-    this.estDep = '',
-    this.estArr = '',
     required this.terminal,
     required this.gate,
+    required this.counter,
     required this.baggage,
     required this.status,
   });
 
-  factory FlightInfo.fromJson(Map<String, dynamic> json) {
-    String formatTime(String? fullTime) {
-      if (fullTime == null || fullTime.length < 16) return '--:--';
-      return fullTime.substring(11, 16);
-    }
+  Map<String, dynamic> toMap() {
+    return {
+      'flightNo': flightNo,
+      'fromCode': fromCode,
+      'toCode': toCode,
+      'date': date,
+      'schedDep': schedDep,
+      'schedArr': schedArr,
+      'terminal': terminal,
+      'gate': gate,
+      'counter': counter,
+      'baggage': baggage,
+      'status': status,
+    };
+  }
 
+  factory FlightInfo.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return FlightInfo(
-      flightNo: json['flight_iata'] ?? 'JX???',
-      fromCode: json['dep_iata'] ?? '',
-      fromCity: 'Taoyuan',
-      toCode: json['arr_iata'] ?? '',
-      toCity: 'Sendai',
-      date: json['dep_time']?.toString().substring(5, 10) ?? '',
-      schedDep: formatTime(json['dep_time']),
-      schedArr: formatTime(json['arr_time']),
-      estDep: formatTime(json['dep_estimated']),
-      estArr: formatTime(json['arr_estimated']),
-      terminal: json['dep_terminal'] ?? '-',
-      gate: json['dep_gate'] ?? '-',
-      baggage: json['arr_baggage'] ?? '-',
-      status: json['status'] ?? 'Scheduled',
+      id: doc.id,
+      flightNo: data['flightNo'] ?? '',
+      fromCode: data['fromCode'] ?? '',
+      toCode: data['toCode'] ?? '',
+      date: data['date'] ?? '',
+      schedDep: data['schedDep'] ?? '',
+      schedArr: data['schedArr'] ?? '',
+      terminal: data['terminal'] ?? '-',
+      gate: data['gate'] ?? '-',
+      counter: data['counter'] ?? '-',
+      baggage: data['baggage'] ?? '-',
+      status: data['status'] ?? 'Scheduled',
     );
   }
 }
@@ -111,6 +118,7 @@ class Activity {
   String title;
   String location;
   String notes;
+  String detailedInfo; // 新增：詳細資訊(景點介紹)
   double cost;
   ActivityType type;
   List<String> imageUrls;
@@ -122,6 +130,7 @@ class Activity {
     required this.title,
     this.location = '',
     this.notes = '',
+    this.detailedInfo = '',
     this.cost = 0.0,
     this.type = ActivityType.sight,
     this.imageUrls = const [],
@@ -134,6 +143,7 @@ class Activity {
       'title': title,
       'location': location,
       'notes': notes,
+      'detailedInfo': detailedInfo,
       'cost': cost,
       'type': type.index,
       'imageUrls': imageUrls,
@@ -149,6 +159,7 @@ class Activity {
       title: data['title'] ?? '',
       location: data['location'] ?? '',
       notes: data['notes'] ?? '',
+      detailedInfo: data['detailedInfo'] ?? '',
       cost: (data['cost'] ?? 0).toDouble(),
       type: ActivityType.values[data['type'] ?? 0],
       imageUrls: List<String>.from(data['imageUrls'] ?? []),
@@ -216,36 +227,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   final CollectionReference _activitiesRef = FirebaseFirestore.instance
       .collection('activities');
-
-  // --- 航班資料 (已手動補齊 JX862 的靜態資料，當 API 沒抓到時會顯示這些) ---
-  FlightInfo _outboundFlight = FlightInfo(
-    flightNo: 'JX862',
-    fromCode: 'TPE',
-    fromCity: 'Taoyuan',
-    toCode: 'SDJ',
-    toCity: 'Sendai',
-    date: '16 JAN',
-    schedDep: '11:50',
-    schedArr: '16:00',
-    terminal: '1',
-    gate: 'A5',
-    baggage: '05',
-    status: 'Scheduled', // 這裡補齊了航廈資訊
-  );
-
-  FlightInfo _inboundFlight = FlightInfo(
-    flightNo: 'JX863',
-    fromCode: 'SDJ',
-    fromCity: 'Sendai',
-    toCode: 'TPE',
-    toCity: 'Taoyuan',
-    date: '20 JAN',
-    schedDep: '17:30',
-    schedArr: '20:40',
-    terminal: 'I',
-    gate: '3',
-    baggage: '06',
-    status: 'Scheduled',
+  // 新增：航班集合
+  final CollectionReference _flightsRef = FirebaseFirestore.instance.collection(
+    'flights',
   );
 
   @override
@@ -253,7 +237,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.initState();
     _updateTime();
     _fetchRealWeather();
-    _updateFlightStatus();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) {
       _updateTime();
@@ -274,41 +257,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       _currentTime =
           "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
     });
-  }
-
-  Future<void> _updateFlightStatus() async {
-    if (_flightApiKey.isEmpty) return;
-    await _fetchSingleFlight('JX862', (data) {
-      // 只有當 API 回傳有效資料時才覆蓋
-      setState(() => _outboundFlight = data);
-    });
-    await _fetchSingleFlight('JX863', (data) {
-      setState(() => _inboundFlight = data);
-    });
-  }
-
-  Future<void> _fetchSingleFlight(
-    String flightIata,
-    Function(FlightInfo) onSuccess,
-  ) async {
-    try {
-      final url = Uri.parse(
-        'https://airlabs.co/api/v9/schedules?flight_iata=$flightIata&api_key=$_flightApiKey',
-      );
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final jsonResponse = json.decode(response.body);
-        if (jsonResponse['response'] != null &&
-            (jsonResponse['response'] as List).isNotEmpty) {
-          // 只取第一筆，但要注意如果第一筆是明天的，可能沒有即時資訊
-          var flightData = jsonResponse['response'][0];
-          onSuccess(FlightInfo.fromJson(flightData));
-        }
-      }
-    } catch (e) {
-      print("Flight API Error: $e");
-    }
   }
 
   Future<void> _fetchRealWeather() async {
@@ -385,6 +333,191 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           },
           onDelete: null,
         ),
+      ),
+    );
+  }
+
+  // 新增航班的函式
+  void _addNewFlight() {
+    FlightInfo newFlight = FlightInfo(
+      id: '',
+      flightNo: 'JX',
+      fromCode: 'TPE',
+      toCode: 'SDJ',
+      date: 'DATE',
+      schedDep: '00:00',
+      schedArr: '00:00',
+      terminal: '1',
+      gate: '-',
+      counter: '-',
+      baggage: '-',
+      status: 'Plan',
+    );
+    _showFlightEditor(newFlight, isNew: true);
+  }
+
+  // 編輯航班
+  void _editFlight(FlightInfo flight) {
+    _showFlightEditor(flight, isNew: false);
+  }
+
+  void _showFlightEditor(FlightInfo flight, {required bool isNew}) {
+    final noC = TextEditingController(text: flight.flightNo);
+    final fromC = TextEditingController(text: flight.fromCode);
+    final toC = TextEditingController(text: flight.toCode);
+    final dateC = TextEditingController(text: flight.date);
+    final depC = TextEditingController(text: flight.schedDep);
+    final arrC = TextEditingController(text: flight.schedArr);
+    final termC = TextEditingController(text: flight.terminal);
+    final gateC = TextEditingController(text: flight.gate);
+    final counterC = TextEditingController(text: flight.counter); // 報到櫃台
+    final bagC = TextEditingController(text: flight.baggage);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isNew ? '新增機票' : '編輯機票'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: noC,
+                      decoration: const InputDecoration(
+                        labelText: '航班號 (JX862)',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: dateC,
+                      decoration: const InputDecoration(
+                        labelText: '日期 (16 JAN)',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: fromC,
+                      decoration: const InputDecoration(labelText: '出發 (TPE)'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: toC,
+                      decoration: const InputDecoration(labelText: '抵達 (SDJ)'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: depC,
+                      decoration: const InputDecoration(labelText: '起飛時間'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: arrC,
+                      decoration: const InputDecoration(labelText: '抵達時間'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: counterC,
+                      decoration: const InputDecoration(labelText: '報到櫃台'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: termC,
+                      decoration: const InputDecoration(labelText: '航廈'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: gateC,
+                      decoration: const InputDecoration(labelText: '登機門'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: bagC,
+                      decoration: const InputDecoration(labelText: '行李轉盤'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          if (!isNew)
+            TextButton(
+              onPressed: () {
+                _flightsRef.doc(flight.id).delete();
+                Navigator.pop(context);
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('刪除'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final data = FlightInfo(
+                id: isNew ? '' : flight.id,
+                flightNo: noC.text,
+                fromCode: fromC.text,
+                toCode: toC.text,
+                date: dateC.text,
+                schedDep: depC.text,
+                schedArr: arrC.text,
+                terminal: termC.text,
+                gate: gateC.text,
+                counter: counterC.text,
+                baggage: bagC.text,
+                status: 'Saved',
+              ).toMap();
+
+              if (isNew) {
+                _flightsRef.add(data);
+              } else {
+                _flightsRef.doc(flight.id).update(data);
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('儲存'),
+          ),
+        ],
       ),
     );
   }
@@ -520,23 +653,80 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
+  // --- Widget 構建: 動態機票卡片 (Firestore) ---
   Widget _buildFlightCarousel() {
     return Container(
-      height: 160,
+      height: 180, // 加高一點以容納櫃檯資訊
       margin: const EdgeInsets.symmetric(vertical: 10),
-      child: PageView(
-        controller: PageController(viewportFraction: 0.92),
-        children: [
-          _buildCompactFlightCard(_outboundFlight, '去程'),
-          _buildCompactFlightCard(_inboundFlight, '回程'),
-        ],
+      child: StreamBuilder<QuerySnapshot>(
+        stream: _flightsRef.snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData)
+            return const Center(child: CircularProgressIndicator());
+
+          final flightDocs = snapshot.data!.docs;
+
+          // 如果沒有資料，顯示新增按鈕
+          if (flightDocs.isEmpty) {
+            return Center(
+              child: GestureDetector(
+                onTap: _addNewFlight,
+                child: Container(
+                  width: 300,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.add_circle_outline,
+                        size: 40,
+                        color: Colors.grey,
+                      ),
+                      SizedBox(height: 8),
+                      Text("新增您的第一張機票"),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          // 有資料則顯示列表，最後加一個新增按鈕
+          return PageView.builder(
+            controller: PageController(viewportFraction: 0.92),
+            itemCount: flightDocs.length + 1, // 多一頁給新增按鈕
+            itemBuilder: (context, index) {
+              if (index == flightDocs.length) {
+                return GestureDetector(
+                  onTap: _addNewFlight,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.add, size: 50, color: Colors.white),
+                    ),
+                  ),
+                );
+              }
+              final flight = FlightInfo.fromFirestore(flightDocs[index]);
+              return _buildCompactFlightCard(flight);
+            },
+          );
+        },
       ),
     );
   }
 
-  Widget _buildCompactFlightCard(FlightInfo info, String label) {
+  Widget _buildCompactFlightCard(FlightInfo info) {
     return GestureDetector(
-      onTap: () => _showFlightDetails(info),
+      onTap: () => _editFlight(info), // 點擊可編輯/刪除
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 5),
         padding: const EdgeInsets.all(16),
@@ -554,20 +744,36 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF9E8B6E).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$label • ${info.date}',
-                style: const TextStyle(
-                  color: Color(0xFF9E8B6E),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF9E8B6E).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${info.date} • ${info.flightNo}',
+                    style: const TextStyle(
+                      color: Color(0xFF9E8B6E),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
-              ),
+                if (info.counter != '-' && info.counter.isNotEmpty)
+                  Text(
+                    '櫃台: ${info.counter}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueGrey,
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             Row(
@@ -582,34 +788,36 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       size: 20,
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      info.flightNo,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
+                    const Text("➔", style: TextStyle(color: Colors.grey)),
                   ],
                 ),
                 _buildAirportCode(info.toCode, info.schedArr),
               ],
             ),
-            if (info.estDep.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '預計: ${info.estDep} - ${info.estArr}',
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.green,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildSmallInfo("航廈", info.terminal),
+                _buildSmallInfo("登機門", info.gate),
+                _buildSmallInfo("行李", info.baggage),
+              ],
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSmallInfo(String label, String value) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 
@@ -625,139 +833,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  void _showFlightDetails(FlightInfo info) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.4,
-        maxChildSize: 0.8,
-        builder: (_, controller) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-          ),
-          child: ListView(
-            controller: controller,
-            padding: const EdgeInsets.all(25),
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "Flight Details",
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text(
-                      info.status.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                "${info.fromCity} ➔ ${info.toCity}",
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 30),
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                childAspectRatio: 2.5,
-                mainAxisSpacing: 15,
-                crossAxisSpacing: 15,
-                children: [
-                  _buildDetailItem(Icons.access_time, "表定起飛", info.schedDep),
-                  _buildDetailItem(
-                    Icons.access_time_filled,
-                    "表定抵達",
-                    info.schedArr,
-                  ),
-                  _buildDetailItem(
-                    Icons.update,
-                    "預計起飛",
-                    info.estDep.isEmpty ? '--' : info.estDep,
-                  ),
-                  _buildDetailItem(
-                    Icons.domain,
-                    "航廈 (Terminal)",
-                    info.terminal,
-                  ),
-                  _buildDetailItem(Icons.meeting_room, "登機門 (Gate)", info.gate),
-                  _buildDetailItem(Icons.luggage, "行李轉盤", info.baggage),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetailItem(IconData icon, String title, String value) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF9E8B6E), size: 28),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                title,
-                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-              ),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
+  // --- 可隱藏的工具欄位 ---
   Widget _buildExpandableTools() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -1309,6 +1385,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   late TextEditingController _locC;
   late TextEditingController _costC;
   late TextEditingController _noteC;
+  late TextEditingController _detailC; // 詳細資訊
   late ActivityType _type;
 
   @override
@@ -1319,6 +1396,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
     _locC = TextEditingController(text: widget.activity.location);
     _costC = TextEditingController(text: widget.activity.cost.toString());
     _noteC = TextEditingController(text: widget.activity.notes);
+    _detailC = TextEditingController(text: widget.activity.detailedInfo);
     _type = widget.activity.type;
   }
 
@@ -1328,6 +1406,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
     widget.activity.location = _locC.text;
     widget.activity.cost = double.tryParse(_costC.text) ?? 0.0;
     widget.activity.notes = _noteC.text;
+    widget.activity.detailedInfo = _detailC.text;
     widget.activity.type = _type;
     widget.onSave(widget.activity);
     Navigator.pop(context);
@@ -1407,8 +1486,18 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
             const SizedBox(height: 20),
             TextField(
               controller: _noteC,
-              maxLines: 3,
-              decoration: const InputDecoration(labelText: '筆記'),
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: '簡短筆記'),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _detailC,
+              maxLines: 10,
+              decoration: const InputDecoration(
+                labelText: '詳細資訊 (景點介紹/攻略/連結)',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
