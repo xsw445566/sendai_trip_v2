@@ -119,18 +119,26 @@ class FlightInfo {
       return fullTime.substring(11, 16);
     }
 
+    // 取得表定時間
+    String sDep = formatTime(json['dep_time']);
+    String sArr = formatTime(json['arr_time']);
+
+    // 取得預計時間，如果 API 回傳 null，則用表定時間遞補 (代表準點)
+    String eDep = formatTime(json['dep_estimated']);
+    if (eDep.isEmpty) eDep = sDep;
+
     return FlightInfo(
       id: '',
       flightNo: json['flight_iata'] ?? '',
       fromCode: json['dep_iata'] ?? '',
       toCode: json['arr_iata'] ?? '',
       date: json['dep_time']?.toString().substring(5, 10) ?? '',
-      schedDep: formatTime(json['dep_time']),
-      schedArr: formatTime(json['arr_time']),
-      estDep: formatTime(json['dep_estimated']),
+      schedDep: sDep,
+      schedArr: sArr,
+      estDep: eDep,
       terminal: json['dep_terminal'] ?? '-',
       gate: json['dep_gate'] ?? '-',
-      counter: '-',
+      counter: '-', // API 不提供，預設為空
       baggage: json['arr_baggage'] ?? '-',
       status: json['status'] ?? 'Active',
     );
@@ -363,7 +371,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- 機票管理功能 (修改為鎖定欄位) ---
+  // --- 機票管理功能 ---
   void _addNewFlight() {
     FlightInfo newFlight = FlightInfo(
       id: '',
@@ -382,7 +390,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     _showFlightEditor(newFlight, isNew: true);
   }
 
-  // 查詢 API 並回傳資料的 Helper
+  // 查詢 API 並回傳資料的 Helper (優化版)
   Future<FlightInfo?> _fetchApiData(String flightNo) async {
     try {
       final url = Uri.parse(
@@ -393,6 +401,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         final jsonResponse = json.decode(response.body);
         if (jsonResponse['response'] != null &&
             (jsonResponse['response'] as List).isNotEmpty) {
+          // 這裡通常會回傳多筆資料 (包含過去幾天與未來幾天)
+          // 我們簡單取第一筆 (AirLabs 預設排序通常是最新的)
           return FlightInfo.fromApi(jsonResponse['response'][0]);
         }
       }
@@ -404,12 +414,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   void _showFlightEditor(FlightInfo flight, {required bool isNew}) {
     final noC = TextEditingController(text: flight.flightNo);
-    // 預設日期，若為空則給預設值
-    final dateC = TextEditingController(
-      text: flight.date.isEmpty ? '16 JAN' : flight.date,
-    );
+    final dateC = TextEditingController(text: flight.date);
 
-    // 以下控制器若 API 抓到資料，將會被鎖定
+    // 欄位控制器
     final fromC = TextEditingController(text: flight.fromCode);
     final toC = TextEditingController(text: flight.toCode);
     final depC = TextEditingController(text: flight.schedDep);
@@ -420,7 +427,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     final bagC = TextEditingController(text: flight.baggage);
 
     bool isFetching = false;
-    bool isLocked = false; // 是否鎖定內部資訊
+    bool isLocked = false;
 
     showDialog(
       context: context,
@@ -443,15 +450,16 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: dateC,
-                          decoration: const InputDecoration(
-                            labelText: '日期 (ex: 16 JAN)',
+                      // 日期欄位保留，但如果 API 抓到會更新
+                      if (!isNew) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: dateC,
+                            decoration: const InputDecoration(labelText: '日期'),
                           ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                   if (isFetching)
@@ -461,18 +469,18 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ),
                   const SizedBox(height: 10),
 
-                  // 分隔線
+                  // 鎖定狀態提示
                   const Divider(),
                   Row(
                     children: [
-                      const Icon(
-                        Icons.lock_outline,
+                      Icon(
+                        isLocked ? Icons.lock : Icons.lock_open,
                         size: 16,
-                        color: Colors.grey,
+                        color: isLocked ? Colors.red : Colors.green,
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        isLocked ? "已從系統鎖定資訊" : "尚未同步",
+                        isLocked ? "航班資訊已鎖定 (防止誤改)" : "請輸入航班號並同步",
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.grey,
@@ -482,7 +490,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                   const SizedBox(height: 10),
 
-                  // 以下欄位根據 isLocked 決定是否可編輯
+                  // 主要資訊 (鎖定)
                   Row(
                     children: [
                       Expanded(
@@ -492,7 +500,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           decoration: InputDecoration(
                             labelText: '出發',
                             filled: isLocked,
-                            fillColor: Colors.grey[200],
+                            fillColor: Colors.grey[100],
                           ),
                         ),
                       ),
@@ -504,7 +512,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           decoration: InputDecoration(
                             labelText: '抵達',
                             filled: isLocked,
-                            fillColor: Colors.grey[200],
+                            fillColor: Colors.grey[100],
                           ),
                         ),
                       ),
@@ -520,7 +528,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           decoration: InputDecoration(
                             labelText: '起飛時間',
                             filled: isLocked,
-                            fillColor: Colors.grey[200],
+                            fillColor: Colors.grey[100],
                           ),
                         ),
                       ),
@@ -532,20 +540,23 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           decoration: InputDecoration(
                             labelText: '抵達時間',
                             filled: isLocked,
-                            fillColor: Colors.grey[200],
+                            fillColor: Colors.grey[100],
                           ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
+                  // 次要資訊 (部分鎖定)
                   Row(
                     children: [
+                      // 櫃檯通常 API 沒有，所以保持開放編輯
                       Expanded(
                         child: TextField(
                           controller: counterC,
                           decoration: const InputDecoration(
-                            labelText: '報到櫃台 (可手動)',
+                            labelText: '報到櫃台',
+                            hintText: '需手動輸入',
                           ),
                         ),
                       ),
@@ -557,7 +568,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           decoration: InputDecoration(
                             labelText: '航廈',
                             filled: isLocked,
-                            fillColor: Colors.grey[200],
+                            fillColor: Colors.grey[100],
                           ),
                         ),
                       ),
@@ -573,20 +584,17 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           decoration: InputDecoration(
                             labelText: '登機門',
                             filled: isLocked,
-                            fillColor: Colors.grey[200],
+                            fillColor: Colors.grey[100],
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
+                      // 行李轉盤有時候 API 會有，但常常變動，建議也可以保持開放，這裡先設為跟隨鎖定但可手動解鎖
                       Expanded(
                         child: TextField(
                           controller: bagC,
-                          enabled: !isLocked,
-                          decoration: InputDecoration(
-                            labelText: '行李轉盤',
-                            filled: isLocked,
-                            fillColor: Colors.grey[200],
-                          ),
+                          enabled: true,
+                          decoration: const InputDecoration(labelText: '行李轉盤'),
                         ),
                       ),
                     ],
@@ -596,7 +604,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
             actions: [
               // 搜尋按鈕
-              if (isNew && !isLocked)
+              if (!isLocked)
                 TextButton.icon(
                   icon: const Icon(Icons.sync),
                   label: const Text("搜尋與同步"),
@@ -613,12 +621,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                         arrC.text = apiData.schedArr;
                         termC.text = apiData.terminal;
                         gateC.text = apiData.gate;
-                        bagC.text = apiData.baggage;
-                        // 櫃檯通常要手動，保持原樣
+                        // 嘗試填入行李，如果沒有則留空
+                        if (apiData.baggage != '-') bagC.text = apiData.baggage;
+                        dateC.text = apiData.date; // 更新日期
                       } else {
-                        // 沒抓到，保持開放編輯
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('未找到航班資料，請手動輸入')),
+                          const SnackBar(content: Text('找不到航班，請檢查代號')),
                         );
                       }
                     });
@@ -632,6 +640,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
               ElevatedButton(
                 onPressed: () {
+                  // 儲存邏輯：如果 API 有抓到 estDep 就用，沒有就用 schedDep
+                  // 但這裡是存入 DB，所以主要存表定
                   final data = FlightInfo(
                     id: isNew ? '' : flight.id,
                     flightNo: noC.text,
@@ -640,7 +650,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     date: dateC.text,
                     schedDep: depC.text,
                     schedArr: arrC.text,
-                    estDep: '',
+                    estDep: depC.text, // 預設預計時間=表定時間
                     terminal: termC.text,
                     gate: gateC.text,
                     counter: counterC.text,
@@ -653,7 +663,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   } else {
                     _flightsRef.doc(flight.id).update(data);
                   }
-
                   Navigator.pop(context);
                 },
                 child: const Text('儲存'),
@@ -663,6 +672,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         },
       ),
     );
+  }
+
+  void _editFlight(FlightInfo flight) {
+    // 編輯時通常是為了改櫃檯或行李，所以直接顯示編輯窗，但核心資料不建議大改
+    _showFlightEditor(flight, isNew: false);
   }
 
   void _handleToolTap(String label) {
@@ -827,7 +841,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 );
               }
               final flight = FlightInfo.fromFirestore(flightDocs[index]);
-              // 這裡改成點擊顯示詳情，而非編輯
               return _buildCompactFlightCard(flight);
             },
           );
@@ -838,7 +851,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   Widget _buildCompactFlightCard(FlightInfo info) {
     return GestureDetector(
-      onTap: () => _showFlightDetails(info), // 點擊查看詳情
+      onTap: () => _showFlightDetails(info),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 5),
         padding: const EdgeInsets.all(16),
@@ -877,6 +890,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ),
                   ),
                 ),
+                // 如果有櫃台資訊就顯示，沒有則不顯示
                 if (info.counter != '-' && info.counter.isNotEmpty)
                   Text(
                     '櫃台: ${info.counter}',
@@ -906,6 +920,19 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 _buildAirportCode(info.toCode, info.schedArr),
               ],
             ),
+            // 顯示預計時間 (若與表定不同或有值)
+            if (info.estDep.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  '預計起飛: ${info.estDep}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -966,7 +993,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  // 刪除按鈕
                   IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
                     onPressed: () {
@@ -1036,6 +1062,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     "表定抵達",
                     info.schedArr,
                   ),
+                  _buildDetailItem(Icons.update, "預計起飛", info.estDep),
                   _buildDetailItem(Icons.how_to_reg, "報到櫃台", info.counter),
                   _buildDetailItem(
                     Icons.domain,
