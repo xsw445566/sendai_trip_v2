@@ -31,7 +31,7 @@ const firebaseOptions = FirebaseOptions(
 // OpenWeather
 const String _weatherApiKey = "956b9c1aeed5b382fd6aa09218369bbc";
 // AirLabs Real-time Flights API
-const String _flightApiKey = "73d5e5ca-a0eb-462d-8a91-62e6a7657cb9ㄏ";
+const String _flightApiKey = "73d5e5ca-a0eb-462d-8a91-62e6a7657cb9";
 
 // ---------------------------------------------------------------------------
 // 3. Main
@@ -614,7 +614,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
       String fmt(String? t) {
         if (t == null || t.length < 16) return "";
-        return t.substring(11, 16);
+        return t.substring(11, 16); // "2025-12-10 13:05" → "13:05"
       }
 
       return FlightInfo(
@@ -654,10 +654,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       for (var doc in snapshot.docs) {
         final info = FlightInfo.fromFirestore(doc);
         if (info.flightNo.isEmpty) continue;
+
         final apiData = await _fetchApiData(info.flightNo);
         if (apiData == null) continue;
 
         final updated = info
+          ..date = apiData.date
           ..schedDep = apiData.schedDep
           ..schedArr = apiData.schedArr
           ..estDep = apiData.estDep
@@ -692,6 +694,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
 
     final updated = flight
+      ..date = apiData.date
       ..schedDep = apiData.schedDep
       ..schedArr = apiData.schedArr
       ..estDep = apiData.estDep
@@ -1949,7 +1952,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 }
 
 // ---------------------------------------------------------------------------
-// 以下為既有行程/工具頁面（原樣保留，僅少量調整）
+// 以下為既有行程/工具頁面
 // ---------------------------------------------------------------------------
 
 class DayItineraryWidget extends StatelessWidget {
