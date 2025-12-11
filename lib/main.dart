@@ -595,127 +595,84 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   // -----------------------------------------------------------------------
-  // AirLabs Realtime Flights API
+  // AirLabs Realtime (Schedules) Flights API
   // -----------------------------------------------------------------------
   Future<FlightInfo?> _fetchApiData(String flightNo) async {
+    final trimmedNo = flightNo.trim();
+    if (trimmedNo.isEmpty) return null;
+
     try {
+      // 改成使用 Flight Schedules API，而不是 flights
       final url = Uri.parse(
-        'https://airlabs.co/api/v9/flights?flight_iata=$flightNo&api_key=$_flightApiKey',
+        'https://airlabs.co/api/v9/schedules'
+        '?flight_iata=$trimmedNo&api_key=$_flightApiKey',
       );
 
       final response = await http.get(url);
+
+      // 方便除錯：可以看到實際回傳內容
+      print('Airlabs status=${response.statusCode} body=${response.body}');
+
       if (response.statusCode != 200) return null;
 
       final jsonResponse = json.decode(response.body);
-      final list = jsonResponse['response'];
-      if (list == null || list is! List || list.isEmpty) return null;
 
-      final data = list[0];
+      // API 本身的錯誤（例如額度用完、金鑰錯誤）
+      if (jsonResponse is Map && jsonResponse['error'] != null) {
+        print('Airlabs error: ${jsonResponse['error']}');
+        return null;
+      }
+
+      final list = jsonResponse['response'];
+      if (list == null || list is! List || list.isEmpty) {
+        print('Airlabs no data for flight $trimmedNo');
+        return null;
+      }
+
+      final data = list.first as Map<String, dynamic>;
 
       String fmt(String? t) {
         if (t == null || t.length < 16) return "";
-        return t.substring(11, 16); // "2025-12-10 13:05" → "13:05"
+        // "2021-07-14 19:53" -> "19:53"
+        return t.substring(11, 16);
       }
+
+      final depTimeStr = data['dep_time'] as String?;
+      final arrTimeStr = data['arr_time'] as String?;
 
       return FlightInfo(
         id: '',
-        flightNo: data['flight_iata'] ?? '',
-        fromCode: data['dep_iata'] ?? '',
-        toCode: data['arr_iata'] ?? '',
-        date: data['dep_time'] != null ? data['dep_time'].substring(5, 10) : '',
+        flightNo: (data['flight_iata'] ?? trimmedNo) as String,
+        fromCode: (data['dep_iata'] ?? '') as String,
+        toCode: (data['arr_iata'] ?? '') as String,
+        // dep_time: "2021-07-14 19:53" -> "07-14"
+        date: depTimeStr != null && depTimeStr.length >= 10
+            ? depTimeStr.substring(5, 10)
+            : '',
 
-        schedDep: fmt(data['dep_time']),
-        schedArr: fmt(data['arr_time']),
+        schedDep: fmt(depTimeStr),
+        schedArr: fmt(arrTimeStr),
 
-        estDep: fmt(data['dep_actual']) == ""
-            ? fmt(data['dep_estimated'])
-            : fmt(data['dep_actual']),
-        estArr: fmt(data['arr_actual']) == ""
-            ? fmt(data['arr_estimated'])
-            : fmt(data['arr_actual']),
+        // 有 actual 用 actual，沒有就用 estimated
+        estDep: fmt((data['dep_actual'] ?? data['dep_estimated']) as String?),
+        estArr: fmt((data['arr_actual'] ?? data['arr_estimated']) as String?),
 
-        terminal: data['dep_terminal'] ?? '-',
-        gate: data['dep_gate'] ?? '-',
-        counter: '-',
-        baggage: data['arr_baggage'] ?? '-',
+        terminal: (data['dep_terminal'] ?? '-') as String,
+        gate: (data['dep_gate'] ?? '-') as String,
+        counter: '-', // 報到櫃檯沒有提供，維持手動輸入
+        baggage: (data['arr_baggage'] ?? '-') as String,
 
-        status: data['status'] ?? 'scheduled',
-        delay: (data['dep_delayed'] ?? 0).toInt(),
+        status: (data['status'] ?? 'scheduled') as String,
+        delay: (() {
+          final v = data['dep_delayed'];
+          if (v is int) return v;
+          if (v is double) return v.toInt();
+          return 0;
+        })(),
       );
-    } catch (e) {
-      print("Realtime API error: $e");
+    } catch (e, st) {
+      print("Realtime API error: $e\n$st");
       return null;
-    }
-  }
-
-  Future<void> _refreshAllFlights() async {
-    try {
-      final snapshot = await _flightsRef.get();
-      for (var doc in snapshot.docs) {
-        final info = FlightInfo.fromFirestore(doc);
-        if (info.flightNo.isEmpty) continue;
-
-        final apiData = await _fetchApiData(info.flightNo);
-        if (apiData == null) continue;
-
-        final updated = info
-          ..date = apiData.date
-          ..schedDep = apiData.schedDep
-          ..schedArr = apiData.schedArr
-          ..estDep = apiData.estDep
-          ..estArr = apiData.estArr
-          ..terminal = apiData.terminal
-          ..gate = apiData.gate
-          ..baggage = apiData.baggage
-          ..status = apiData.status
-          ..delay = apiData.delay;
-
-        final map = updated.toMap();
-        await _flightsRef.doc(info.id).update(map);
-        await _globalFlightsRef.doc(info.id).set({
-          ...map,
-          'uid': widget.uid,
-        }, SetOptions(merge: true));
-      }
-    } catch (e) {
-      print("Refresh all flights error: $e");
-    }
-  }
-
-  Future<void> _refreshSingleFlight(FlightInfo flight) async {
-    final apiData = await _fetchApiData(flight.flightNo);
-    if (apiData == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('無法取得最新航班資訊')));
-      }
-      return;
-    }
-
-    final updated = flight
-      ..date = apiData.date
-      ..schedDep = apiData.schedDep
-      ..schedArr = apiData.schedArr
-      ..estDep = apiData.estDep
-      ..estArr = apiData.estArr
-      ..terminal = apiData.terminal
-      ..gate = apiData.gate
-      ..baggage = apiData.baggage
-      ..status = apiData.status
-      ..delay = apiData.delay;
-
-    final map = updated.toMap();
-    await _flightsRef.doc(flight.id).update(map);
-    await _globalFlightsRef.doc(flight.id).set({
-      ...map,
-      'uid': widget.uid,
-    }, SetOptions(merge: true));
-
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('航班資訊已同步')));
     }
   }
 
