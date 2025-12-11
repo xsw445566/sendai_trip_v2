@@ -534,6 +534,48 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
+  Future<void> _refreshAllFlights() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('flights')
+          .get();
+
+      for (final doc in snapshot.docs) {
+        final flightNo = doc['flightNo'];
+        await _refreshSingleFlight(flightNo);
+      }
+
+      setState(() {});
+    } catch (e) {
+      print("Error refreshing all flights: $e");
+    }
+  }
+
+  Future<void> _refreshSingleFlight(String flightNo) async {
+    try {
+      final info = await _fetchApiData(flightNo);
+
+      if (info != null) {
+        await FirebaseFirestore.instance
+            .collection('flights')
+            .doc(flightNo)
+            .update({
+              "schedDep": info.schedDep,
+              "schedArr": info.schedArr,
+              "estDep": info.estDep,
+              "estArr": info.estArr,
+              "gate": info.gate,
+              "terminal": info.terminal,
+              "delay": info.delay,
+              "status": info.status,
+              "date": info.date,
+            });
+      }
+    } catch (e) {
+      print("Error refreshing $flightNo: $e");
+    }
+  }
+
   IconData _mapWeatherIcon(String code) {
     switch (code) {
       case '01d':
