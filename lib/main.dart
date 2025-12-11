@@ -1159,7 +1159,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               return GestureDetector(
                 onTap: () => isDefault ? null : _showFlightDetails(info),
                 onLongPress: () =>
-                    isDefault ? null : _refreshSingleFlight(info),
+                    isDefault ? null : _refreshSingleFlight(info.flightNo),
+                isDefault ? null : _refreshSingleFlight(info.flightNo),
                 child: _buildCompactFlightCard(info, isDefault: isDefault),
               );
             },
@@ -1482,7 +1483,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       icon: const Icon(Icons.refresh),
                       onPressed: () async {
                         Navigator.pop(context);
-                        await _refreshSingleFlight(info);
+                        await _refreshSingleFlight(info.flightNo);
                       },
                     ),
                     IconButton(
