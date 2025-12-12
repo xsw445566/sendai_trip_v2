@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math';
 import 'dart:convert';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -2961,8 +2960,9 @@ class MapListPage extends StatelessWidget {
 
   Future<void> _openMap(String location) async {
     final uri = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=$location',
+      'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(location)}',
     );
+
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       throw 'Could not launch map';
     }
@@ -2990,18 +2990,14 @@ class MapListPage extends StatelessWidget {
             return (data['location'] ?? '').toString().isNotEmpty;
           }).toList();
 
-          if (docs.isEmpty) {
-            return const Center(child: Text('尚無可導航地點'));
-          }
-
           return ListView.builder(
             itemCount: docs.length,
             itemBuilder: (context, i) {
               final data = docs[i].data() as Map<String, dynamic>;
               return ListTile(
-                leading: const Icon(Icons.map),
+                leading: const Icon(Icons.map, color: Colors.red),
                 title: Text(data['title'] ?? ''),
-                subtitle: Text(data['location']),
+                subtitle: Text(data['location'] ?? ''),
                 trailing: const Icon(Icons.directions),
                 onTap: () => _openMap(data['location']),
               );
