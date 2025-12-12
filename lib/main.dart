@@ -1039,71 +1039,41 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   void _showCurrencyDialog() {
-    double rate = 0.0;
-    double jpy = 0.0;
-    double twd = 0.0;
-
-    bool fetched = false;
-    bool loading = true;
-    String error = '';
-    DateTime? updatedAt;
-
-    Future<void> fetchRate(StateSetter setState) async {
-      setState(() {
-        loading = true;
-        error = '';
-      });
-      try {
-        final url = Uri.parse('https://api.exchangerate-api.com/v4/latest/JPY');
-        final response = await http.get(url);
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          final r = data?['rates']?['TWD'];
-          if (r != null) {
-            setState(() {
-              rate = (r as num).toDouble();
-              twd = jpy * rate;
-              loading = false;
-              updatedAt = DateTime.now();
-            });
-            return;
-          }
-        }
-        setState(() {
-          loading = false;
-          error = '匯率取得失敗，請稍後再試';
-        });
-      } catch (e) {
-        setState(() {
-          loading = false;
-          error = '匯率取得失敗：$e';
-        });
-      }
-    }
+    double rate = 0.215;
+    double jpy = 0;
+    double twd = 0;
 
     showDialog(
       context: context,
       builder: (_) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // 只在首次建立時抓一次，避免每次輸入觸發 rebuild 都打 API
-            if (!fetched) {
-              fetched = true;
-              // ignore: discarded_futures
-              fetchRate(setState);
+            Future<void> fetchRate() async {
+              try {
+                final url = Uri.parse(
+                  'https://api.exchangerate-api.com/v4/latest/JPY',
+                );
+                final response = await http.get(url);
+                if (response.statusCode == 200) {
+                  final data = json.decode(response.body);
+                  if (data['rates'] != null && data['rates']['TWD'] != null) {
+                    if (context.mounted) {
+                      setState(() {
+                        rate = (data['rates']['TWD']).toDouble();
+                        twd = jpy * rate;
+                      });
+                    }
+                  }
+                }
+              } catch (e) {
+                print('Currency API Error: $e');
+              }
             }
 
+            fetchRate();
+
             return AlertDialog(
-              title: Row(
-                children: [
-                  const Expanded(child: Text('即時匯率試算')),
-                  IconButton(
-                    tooltip: '重新取得匯率',
-                    onPressed: () => fetchRate(setState),
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ],
-              ),
+              title: const Text('即時匯率試算'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1115,22 +1085,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ),
                     onChanged: (v) {
                       setState(() {
-                        jpy = double.tryParse(v) ?? 0.0;
-                        twd = rate <= 0 ? 0.0 : jpy * rate;
+                        jpy = double.tryParse(v) ?? 0;
+                        twd = jpy * rate;
                       });
                     },
                   ),
-                  const SizedBox(height: 10),
-                  if (loading)
-                    const LinearProgressIndicator(color: Color(0xFF9E8B6E)),
-                  if (error.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Text(
-                        error,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
                   const SizedBox(height: 10),
                   Text(
                     '約 NT\$ ${twd.toStringAsFixed(0)}',
@@ -1140,31 +1099,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       color: Color(0xFF9E8B6E),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    rate > 0 ? '1 JPY ≈ ${rate.toStringAsFixed(4)} TWD' : '匯率讀取中…',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  if (updatedAt != null)
-                    Text(
-                      '更新時間：${DateFormat('yyyy/MM/dd HH:mm:ss').format(updatedAt!)}',
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                    ),
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('關閉'),
-                ),
-              ],
             );
           },
         );
       },
     );
   }
-
 
   void _showSplitBillDialog() {
     showDialog(
@@ -1215,10 +1157,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               final info = flights[index];
               final isDefault = info.id.startsWith('default');
               return GestureDetector(
-                onTap: () => isDefault ? null : _showFlightDetails(info),
-                onLongPress: () =>
-                    isDefault ? null : _refreshSingleFlight(info.flightNo),
-                isDefault ? null : _refreshSingleFlight(info.flightNo),
+                onTap: isDefault ? null : () => _showFlightDetails(info),
+                onLongPress: isDefault
+                    ? null
+                    : () => _refreshSingleFlight(info.flightNo),
                 child: _buildCompactFlightCard(info, isDefault: isDefault),
               );
             },
@@ -2078,7 +2020,7 @@ class DayItineraryWidget extends StatelessWidget {
   Widget _buildActivityCard(BuildContext context, Activity activity) {
     return GestureDetector(
       onTap: () {
-        // 點擊：開啟行程詳細資訊（含圖片）
+        // 點擊：開啟行程詳細資訊（只讀，含圖片）
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -2113,7 +2055,7 @@ class DayItineraryWidget extends StatelessWidget {
           ),
         );
       },
-child: Container(
+      child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2185,11 +2127,14 @@ child: Container(
                                 color: Colors.grey,
                               ),
                               const SizedBox(width: 4),
-                              Text(
-                                activity.location,
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
+                              Expanded(
+                                child: Text(
+                                  activity.location,
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -2246,6 +2191,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   late TextEditingController _noteC;
   late TextEditingController _detailC;
   late ActivityType _type;
+
   late TextEditingController _imgUrlC;
   late List<String> _imageUrls;
 
@@ -2259,19 +2205,33 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
     _noteC = TextEditingController(text: widget.activity.notes);
     _detailC = TextEditingController(text: widget.activity.detailedInfo);
     _type = widget.activity.type;
+
     _imageUrls = List<String>.from(widget.activity.imageUrls);
     _imgUrlC = TextEditingController();
   }
 
+  @override
+  void dispose() {
+    _titleC.dispose();
+    _timeC.dispose();
+    _locC.dispose();
+    _costC.dispose();
+    _noteC.dispose();
+    _detailC.dispose();
+    _imgUrlC.dispose();
+    super.dispose();
+  }
+
   void _save() {
-    widget.activity.title = _titleC.text;
-    widget.activity.time = _timeC.text;
-    widget.activity.location = _locC.text;
-    widget.activity.cost = double.tryParse(_costC.text) ?? 0.0;
-    widget.activity.notes = _noteC.text;
-    widget.activity.detailedInfo = _detailC.text;
+    widget.activity.title = _titleC.text.trim();
+    widget.activity.time = _timeC.text.trim();
+    widget.activity.location = _locC.text.trim();
+    widget.activity.cost = double.tryParse(_costC.text.trim()) ?? 0.0;
+    widget.activity.notes = _noteC.text.trim();
+    widget.activity.detailedInfo = _detailC.text.trim();
     widget.activity.type = _type;
     widget.activity.imageUrls = List<String>.from(_imageUrls);
+
     widget.onSave(widget.activity);
     Navigator.pop(context);
   }
@@ -2286,13 +2246,18 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
         actions: [
           if (widget.onDelete != null)
             IconButton(
+              tooltip: '刪除',
               icon: const Icon(Icons.delete),
               onPressed: () {
                 widget.onDelete!();
                 Navigator.pop(context);
               },
             ),
-          IconButton(icon: const Icon(Icons.check), onPressed: _save),
+          IconButton(
+            tooltip: '儲存',
+            icon: const Icon(Icons.check),
+            onPressed: _save,
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -2302,7 +2267,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
             Row(
               children: [
                 SizedBox(
-                  width: 80,
+                  width: 90,
                   child: TextField(
                     controller: _timeC,
                     decoration: const InputDecoration(labelText: '時間'),
@@ -2317,9 +2282,10 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             DropdownButtonFormField<ActivityType>(
               value: _type,
+              decoration: const InputDecoration(labelText: '類型'),
               items: ActivityType.values
                   .map(
                     (t) => DropdownMenuItem(
@@ -2328,9 +2294,9 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                     ),
                   )
                   .toList(),
-              onChanged: (v) => setState(() => _type = v!),
+              onChanged: (v) => setState(() => _type = v ?? _type),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             TextField(
               controller: _locC,
               decoration: const InputDecoration(
@@ -2338,7 +2304,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                 prefixIcon: Icon(Icons.map),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             TextField(
               controller: _costC,
               keyboardType: TextInputType.number,
@@ -2347,13 +2313,13 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                 prefixIcon: Icon(Icons.money),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             TextField(
               controller: _noteC,
               maxLines: 2,
               decoration: const InputDecoration(labelText: '簡短筆記'),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             TextField(
               controller: _detailC,
               maxLines: 10,
@@ -2363,8 +2329,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                 border: OutlineInputBorder(),
               ),
             ),
-          ],
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             const Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -2456,12 +2421,12 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
                 ),
               ),
             ],
+          ],
         ),
       ),
     );
   }
 }
-
 
 // ---------------------------------------------------------------------------
 // 行程詳細頁（只讀，含圖片）
@@ -2474,6 +2439,7 @@ class ActivityViewPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final typeText = activity.type.toString().split('.').last;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('行程詳細資訊'),
@@ -2481,7 +2447,7 @@ class ActivityViewPage extends StatelessWidget {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            tooltip: '編輯（也可在行程卡長按）',
+            tooltip: '編輯（也可長按行程卡）',
             icon: const Icon(Icons.edit),
             onPressed: () {
               Navigator.push(
@@ -2530,7 +2496,10 @@ class ActivityViewPage extends StatelessWidget {
               Expanded(
                 child: Text(
                   activity.title,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -2542,7 +2511,8 @@ class ActivityViewPage extends StatelessWidget {
             children: [
               _chip('類型：$typeText'),
               if (activity.cost > 0) _chip('花費：¥${activity.cost.toInt()}'),
-              if (activity.location.isNotEmpty) _chip('地點：${activity.location}'),
+              if (activity.location.isNotEmpty)
+                _chip('地點：${activity.location}'),
             ],
           ),
           if (activity.imageUrls.isNotEmpty) ...[
@@ -2598,200 +2568,6 @@ class ActivityViewPage extends StatelessWidget {
         border: Border.all(color: Colors.grey.shade300),
       ),
       child: Text(text, style: const TextStyle(fontSize: 12)),
-    );
-  }
-}
-
-class MapListPage extends StatelessWidget {
-  const MapListPage({super.key});
-
-  Future<void> _openMap(String loc) async {
-    final Uri url = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=$loc',
-    );
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      html.window.open(url.toString(), '_blank');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    return Scaffold(
-      appBar: AppBar(title: const Text('地圖導航'), backgroundColor: Colors.green),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .collection('activities')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          var docs = snapshot.data!.docs.where((d) {
-            final data = d.data() as Map;
-            return (data['location'] ?? '').toString().isNotEmpty;
-          }).toList();
-          return ListView.builder(
-            itemCount: docs.length,
-            itemBuilder: (c, i) {
-              var d = docs[i].data() as Map;
-              return ListTile(
-                leading: const Icon(Icons.map, color: Colors.red),
-                title: Text(d['title']),
-                subtitle: Text(d['location']),
-                trailing: const Icon(Icons.directions),
-                onTap: () => _openMap(d['location']),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-// 分帳
-class AdvancedSplitBillDialog extends StatefulWidget {
-  const AdvancedSplitBillDialog({super.key});
-
-  @override
-  State<AdvancedSplitBillDialog> createState() =>
-      _AdvancedSplitBillDialogState();
-}
-
-class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
-  double total = 0;
-  List<String> people = [];
-  final TextEditingController _c = TextEditingController();
-  final TextEditingController _totalC = TextEditingController();
-
-  DocumentReference get _billRef => FirebaseFirestore.instance
-      .collection('users')
-      .doc(FirebaseAuth.instance.currentUser!.uid)
-      .collection('tools')
-      .doc('bill_data');
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    try {
-      final doc = await _billRef.get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        setState(() {
-          total = (data['total'] ?? 0).toDouble();
-          people = List<String>.from(data['people'] ?? []);
-          _totalC.text = total == 0 ? '' : total.toStringAsFixed(0);
-        });
-      } else {
-        setState(() => people = ['我']);
-      }
-    } catch (e) {
-      print('Load bill error: $e');
-    }
-  }
-
-  Future<void> _saveData() async {
-    await _billRef.set({'total': total, 'people': people});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final share = people.isNotEmpty ? total / people.length : 0;
-    return AlertDialog(
-      title: const Text('分帳神器 (自動記憶)'),
-      content: SingleChildScrollView(
-        child: Column(
-          children: [
-            TextField(
-              controller: _totalC,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: '總金額 (JPY)'),
-              onChanged: (v) {
-                setState(() => total = double.tryParse(v) ?? 0);
-                _saveData();
-              },
-            ),
-            const SizedBox(height: 15),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.teal.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                children: [
-                  const Text('每人應付', style: TextStyle(color: Colors.teal)),
-                  Text(
-                    '¥${share.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.teal,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 30),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "分帳成員:",
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ),
-            Wrap(
-              spacing: 8,
-              children: people
-                  .map(
-                    (p) => Chip(
-                      label: Text(p),
-                      onDeleted: () {
-                        setState(() => people.remove(p));
-                        _saveData();
-                      },
-                    ),
-                  )
-                  .toList(),
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _c,
-                    decoration: const InputDecoration(hintText: '新增名字'),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add_circle, color: Colors.teal),
-                  onPressed: () {
-                    if (_c.text.isNotEmpty) {
-                      setState(() {
-                        people.add(_c.text);
-                        _c.clear();
-                      });
-                      _saveData();
-                    }
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('完成'),
-        ),
-      ],
     );
   }
 }
