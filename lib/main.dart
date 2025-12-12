@@ -534,62 +534,45 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
-  // -----------------------------------------------------------------------
-  // 同步航班：全部 / 單一 (使用 users/{uid}/flights 與全域 flights)
-  // -----------------------------------------------------------------------
   Future<void> _refreshAllFlights() async {
     try {
-      final snapshot = await _flightsRef.get();
+      final snapshot = await FirebaseFirestore.instance
+          .collection('flights')
+          .get();
+
       for (final doc in snapshot.docs) {
-        final info = FlightInfo.fromFirestore(doc);
-        if (info.flightNo.isEmpty) continue;
-        await _refreshSingleFlight(info);
+        final flightNo = doc['flightNo'];
+        await _refreshSingleFlight(flightNo);
       }
+
+      setState(() {});
     } catch (e) {
-      print("Refresh all flights error: $e");
+      print("Error refreshing all flights: $e");
     }
   }
 
-  Future<void> _refreshSingleFlight(FlightInfo flight) async {
-    final apiData = await _fetchApiData(flight.flightNo);
-    if (apiData == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('無法取得最新航班資訊')));
-      }
-      return;
-    }
-
-    // 只更新 API 能提供的欄位；counter 維持手動輸入
-    final updated = flight
-      ..date = apiData.date
-      ..schedDep = apiData.schedDep
-      ..schedArr = apiData.schedArr
-      ..estDep = apiData.estDep
-      ..estArr = apiData.estArr
-      ..terminal = apiData.terminal
-      ..gate = apiData.gate
-      ..baggage = apiData.baggage
-      ..status = apiData.status
-      ..delay = apiData.delay;
-
-    final map = updated.toMap();
-
+  Future<void> _refreshSingleFlight(String flightNo) async {
     try {
-      await _flightsRef.doc(flight.id).update(map);
-      await _globalFlightsRef.doc(flight.id).set({
-        ...map,
-        'uid': widget.uid,
-      }, SetOptions(merge: true));
+      final info = await _fetchApiData(flightNo);
 
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('航班資訊已同步')));
+      if (info != null) {
+        await FirebaseFirestore.instance
+            .collection('flights')
+            .doc(flightNo)
+            .update({
+              "schedDep": info.schedDep,
+              "schedArr": info.schedArr,
+              "estDep": info.estDep,
+              "estArr": info.estArr,
+              "gate": info.gate,
+              "terminal": info.terminal,
+              "delay": info.delay,
+              "status": info.status,
+              "date": info.date,
+            });
       }
     } catch (e) {
-      print("Refresh single flight error: $e");
+      print("Error refreshing $flightNo: $e");
     }
   }
 
@@ -1056,41 +1039,71 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   void _showCurrencyDialog() {
-    double rate = 0.215;
-    double jpy = 0;
-    double twd = 0;
+    double rate = 0.0;
+    double jpy = 0.0;
+    double twd = 0.0;
+
+    bool fetched = false;
+    bool loading = true;
+    String error = '';
+    DateTime? updatedAt;
+
+    Future<void> fetchRate(StateSetter setState) async {
+      setState(() {
+        loading = true;
+        error = '';
+      });
+      try {
+        final url = Uri.parse('https://api.exchangerate-api.com/v4/latest/JPY');
+        final response = await http.get(url);
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final r = data?['rates']?['TWD'];
+          if (r != null) {
+            setState(() {
+              rate = (r as num).toDouble();
+              twd = jpy * rate;
+              loading = false;
+              updatedAt = DateTime.now();
+            });
+            return;
+          }
+        }
+        setState(() {
+          loading = false;
+          error = '匯率取得失敗，請稍後再試';
+        });
+      } catch (e) {
+        setState(() {
+          loading = false;
+          error = '匯率取得失敗：$e';
+        });
+      }
+    }
 
     showDialog(
       context: context,
       builder: (_) {
         return StatefulBuilder(
           builder: (context, setState) {
-            Future<void> fetchRate() async {
-              try {
-                final url = Uri.parse(
-                  'https://api.exchangerate-api.com/v4/latest/JPY',
-                );
-                final response = await http.get(url);
-                if (response.statusCode == 200) {
-                  final data = json.decode(response.body);
-                  if (data['rates'] != null && data['rates']['TWD'] != null) {
-                    if (context.mounted) {
-                      setState(() {
-                        rate = (data['rates']['TWD']).toDouble();
-                        twd = jpy * rate;
-                      });
-                    }
-                  }
-                }
-              } catch (e) {
-                print('Currency API Error: $e');
-              }
+            // 只在首次建立時抓一次，避免每次輸入觸發 rebuild 都打 API
+            if (!fetched) {
+              fetched = true;
+              // ignore: discarded_futures
+              fetchRate(setState);
             }
 
-            fetchRate();
-
             return AlertDialog(
-              title: const Text('即時匯率試算'),
+              title: Row(
+                children: [
+                  const Expanded(child: Text('即時匯率試算')),
+                  IconButton(
+                    tooltip: '重新取得匯率',
+                    onPressed: () => fetchRate(setState),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1102,11 +1115,22 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     ),
                     onChanged: (v) {
                       setState(() {
-                        jpy = double.tryParse(v) ?? 0;
-                        twd = jpy * rate;
+                        jpy = double.tryParse(v) ?? 0.0;
+                        twd = rate <= 0 ? 0.0 : jpy * rate;
                       });
                     },
                   ),
+                  const SizedBox(height: 10),
+                  if (loading)
+                    const LinearProgressIndicator(color: Color(0xFF9E8B6E)),
+                  if (error.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        error,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
                   const SizedBox(height: 10),
                   Text(
                     '約 NT\$ ${twd.toStringAsFixed(0)}',
@@ -1116,14 +1140,31 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       color: Color(0xFF9E8B6E),
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Text(
+                    rate > 0 ? '1 JPY ≈ ${rate.toStringAsFixed(4)} TWD' : '匯率讀取中…',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  if (updatedAt != null)
+                    Text(
+                      '更新時間：${DateFormat('yyyy/MM/dd HH:mm:ss').format(updatedAt!)}',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                 ],
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('關閉'),
+                ),
+              ],
             );
           },
         );
       },
     );
   }
+
 
   void _showSplitBillDialog() {
     showDialog(
@@ -1176,7 +1217,8 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               return GestureDetector(
                 onTap: () => isDefault ? null : _showFlightDetails(info),
                 onLongPress: () =>
-                    isDefault ? null : _refreshSingleFlight(info),
+                    isDefault ? null : _refreshSingleFlight(info.flightNo),
+                isDefault ? null : _refreshSingleFlight(info.flightNo),
                 child: _buildCompactFlightCard(info, isDefault: isDefault),
               );
             },
@@ -1499,7 +1541,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       icon: const Icon(Icons.refresh),
                       onPressed: () async {
                         Navigator.pop(context);
-                        await _refreshSingleFlight(info);
+                        await _refreshSingleFlight(info.flightNo);
                       },
                     ),
                     IconButton(
@@ -2036,6 +2078,16 @@ class DayItineraryWidget extends StatelessWidget {
   Widget _buildActivityCard(BuildContext context, Activity activity) {
     return GestureDetector(
       onTap: () {
+        // 點擊：開啟行程詳細資訊（含圖片）
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ActivityViewPage(activity: activity),
+          ),
+        );
+      },
+      onLongPress: () {
+        // 長按：進入行程編輯
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -2061,7 +2113,7 @@ class DayItineraryWidget extends StatelessWidget {
           ),
         );
       },
-      child: Container(
+child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2194,6 +2246,8 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   late TextEditingController _noteC;
   late TextEditingController _detailC;
   late ActivityType _type;
+  late TextEditingController _imgUrlC;
+  late List<String> _imageUrls;
 
   @override
   void initState() {
@@ -2205,6 +2259,8 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
     _noteC = TextEditingController(text: widget.activity.notes);
     _detailC = TextEditingController(text: widget.activity.detailedInfo);
     _type = widget.activity.type;
+    _imageUrls = List<String>.from(widget.activity.imageUrls);
+    _imgUrlC = TextEditingController();
   }
 
   void _save() {
@@ -2215,6 +2271,7 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
     widget.activity.notes = _noteC.text;
     widget.activity.detailedInfo = _detailC.text;
     widget.activity.type = _type;
+    widget.activity.imageUrls = List<String>.from(_imageUrls);
     widget.onSave(widget.activity);
     Navigator.pop(context);
   }
@@ -2307,8 +2364,240 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
               ),
             ),
           ],
+            const SizedBox(height: 20),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '圖片（貼上圖片網址，可放多張）',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _imgUrlC,
+                    decoration: const InputDecoration(
+                      labelText: 'Image URL',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    final url = _imgUrlC.text.trim();
+                    if (url.isEmpty) return;
+                    setState(() {
+                      _imageUrls.add(url);
+                      _imgUrlC.clear();
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF9E8B6E),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('新增'),
+                ),
+              ],
+            ),
+            if (_imageUrls.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 90,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _imageUrls.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (context, i) {
+                    final url = _imageUrls[i];
+                    return Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            url,
+                            width: 120,
+                            height: 90,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 120,
+                              height: 90,
+                              color: Colors.grey.shade200,
+                              child: const Center(
+                                child: Icon(Icons.broken_image),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 4,
+                          top: 4,
+                          child: InkWell(
+                            onTap: () => setState(() => _imageUrls.removeAt(i)),
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.55),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Icon(
+                                Icons.close,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
         ),
       ),
+    );
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// 行程詳細頁（只讀，含圖片）
+// 點擊行程卡會進來；長按才進入編輯。
+// ---------------------------------------------------------------------------
+class ActivityViewPage extends StatelessWidget {
+  final Activity activity;
+  const ActivityViewPage({super.key, required this.activity});
+
+  @override
+  Widget build(BuildContext context) {
+    final typeText = activity.type.toString().split('.').last;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('行程詳細資訊'),
+        backgroundColor: const Color(0xFF9E8B6E),
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: '編輯（也可在行程卡長按）',
+            icon: const Icon(Icons.edit),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ActivityDetailPage(
+                    activity: activity,
+                    onSave: (updated) {
+                      FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(FirebaseAuth.instance.currentUser!.uid)
+                          .collection('activities')
+                          .doc(updated.id)
+                          .update(updated.toMap());
+                    },
+                    onDelete: () {
+                      FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(FirebaseAuth.instance.currentUser!.uid)
+                          .collection('activities')
+                          .doc(activity.id)
+                          .delete();
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            children: [
+              Text(
+                activity.time,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Color(0xFF9E8B6E),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  activity.title,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _chip('類型：$typeText'),
+              if (activity.cost > 0) _chip('花費：¥${activity.cost.toInt()}'),
+              if (activity.location.isNotEmpty) _chip('地點：${activity.location}'),
+            ],
+          ),
+          if (activity.imageUrls.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              height: 220,
+              child: PageView.builder(
+                itemCount: activity.imageUrls.length,
+                controller: PageController(viewportFraction: 0.92),
+                itemBuilder: (context, i) {
+                  final url = activity.imageUrls[i];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(child: Icon(Icons.broken_image)),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          if (activity.notes.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text('簡短筆記', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(activity.notes),
+          ],
+          if (activity.detailedInfo.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text('詳細資訊', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(activity.detailedInfo),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static Widget _chip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Text(text, style: const TextStyle(fontSize: 12)),
     );
   }
 }
