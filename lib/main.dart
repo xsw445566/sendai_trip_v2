@@ -1015,6 +1015,74 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
+  Widget _buildCompactFlightCard(FlightInfo info, {required bool isDefault}) {
+    final isDelayed = info.delay > 0;
+    final depTime = info.estDep.isNotEmpty ? info.estDep : info.schedDep;
+    final arrTime = info.estArr.isNotEmpty ? info.estArr : info.schedArr;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'STARLUX • ${info.flightNo}',
+                style: const TextStyle(
+                  color: Color(0xFFD4C5A9),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                info.status.toUpperCase(),
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _airportBlock(info.fromCode, depTime, isDelayed),
+              const Expanded(child: Icon(Icons.flight, color: Colors.white54)),
+              _airportBlock(info.toCode, arrTime, isDelayed),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _airportBlock(String code, String time, bool delayed) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          code,
+          style: const TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          time,
+          style: TextStyle(
+            fontSize: 18,
+            color: delayed ? Colors.redAccent : Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
+
   // -----------------------------------------------------------------------
   // 航班詳細資訊 BottomSheet（STARLUX）
   // -----------------------------------------------------------------------
@@ -1251,6 +1319,35 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         ),
       ),
     );
+  }
+
+  void _handleToolTap(String label) {
+    switch (label) {
+      case '行李':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PackingListPage()),
+        );
+        break;
+      case '必買':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ShoppingListPage()),
+        );
+        break;
+      case '翻譯':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const TranslatorPage()),
+        );
+        break;
+      case '地圖':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const MapListPage()),
+        );
+        break;
+    }
   }
 
   // -----------------------------------------------------------------------
