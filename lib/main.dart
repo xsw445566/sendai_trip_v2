@@ -535,41 +535,46 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   Future<void> _refreshAllFlights() async {
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('flights')
-          .get();
+      final snapshot = await _flightsRef.get(); // ✅ users/{uid}/flights
 
       for (final doc in snapshot.docs) {
-        final flightNo = doc['flightNo'];
-        await _refreshSingleFlight(flightNo);
+        final data = doc.data() as Map<String, dynamic>;
+        final flightNo = data['flightNo'];
+        if (flightNo != null && flightNo.toString().isNotEmpty) {
+          await _refreshSingleFlight(doc.id, flightNo);
+        }
       }
-
-      setState(() {});
     } catch (e) {
       print("Error refreshing all flights: $e");
     }
   }
 
-  Future<void> _refreshSingleFlight(String flightNo) async {
+  Future<void> _refreshSingleFlight(String docId, String flightNo) async {
     try {
       final info = await _fetchApiData(flightNo);
+      if (info == null) return;
 
-      if (info != null) {
-        await FirebaseFirestore.instance
-            .collection('flights')
-            .doc(flightNo)
-            .update({
-              "schedDep": info.schedDep,
-              "schedArr": info.schedArr,
-              "estDep": info.estDep,
-              "estArr": info.estArr,
-              "gate": info.gate,
-              "terminal": info.terminal,
-              "delay": info.delay,
-              "status": info.status,
-              "date": info.date,
-            });
-      }
+      final map = {
+        "schedDep": info.schedDep,
+        "schedArr": info.schedArr,
+        "estDep": info.estDep,
+        "estArr": info.estArr,
+        "gate": info.gate,
+        "terminal": info.terminal,
+        "delay": info.delay,
+        "status": info.status,
+        "date": info.date,
+      };
+
+      // ✅ 更新 UI 用的資料
+      await _flightsRef.doc(docId).update(map);
+
+      // （選擇性）同步更新 global flights
+      await _globalFlightsRef.doc(docId).set({
+        ...map,
+        'flightNo': flightNo,
+        'uid': widget.uid,
+      }, SetOptions(merge: true));
     } catch (e) {
       print("Error refreshing $flightNo: $e");
     }
