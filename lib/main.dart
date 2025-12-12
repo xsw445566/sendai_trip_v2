@@ -2864,3 +2864,151 @@ class _TranslatorPageState extends State<TranslatorPage> {
     );
   }
 }
+
+// ===============================
+// 分帳工具（AdvancedSplitBillDialog）
+// ===============================
+class AdvancedSplitBillDialog extends StatefulWidget {
+  const AdvancedSplitBillDialog({super.key});
+
+  @override
+  State<AdvancedSplitBillDialog> createState() =>
+      _AdvancedSplitBillDialogState();
+}
+
+class _AdvancedSplitBillDialogState extends State<AdvancedSplitBillDialog> {
+  final TextEditingController _totalController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+
+  double total = 0;
+  List<String> people = ['我'];
+
+  @override
+  Widget build(BuildContext context) {
+    final share = people.isEmpty ? 0 : total / people.length;
+
+    return AlertDialog(
+      title: const Text('分帳計算'),
+      content: SingleChildScrollView(
+        child: Column(
+          children: [
+            TextField(
+              controller: _totalController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: '總金額'),
+              onChanged: (v) {
+                setState(() => total = double.tryParse(v) ?? 0);
+              },
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '每人：¥${share.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const Divider(),
+            Wrap(
+              spacing: 8,
+              children: people
+                  .map(
+                    (p) => Chip(
+                      label: Text(p),
+                      onDeleted: people.length > 1
+                          ? () => setState(() => people.remove(p))
+                          : null,
+                    ),
+                  )
+                  .toList(),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(hintText: '新增成員'),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    if (_nameController.text.isNotEmpty) {
+                      setState(() {
+                        people.add(_nameController.text);
+                        _nameController.clear();
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('關閉'),
+        ),
+      ],
+    );
+  }
+}
+
+// ===============================
+// 地圖清單頁（MapListPage）
+// ===============================
+class MapListPage extends StatelessWidget {
+  const MapListPage({super.key});
+
+  Future<void> _openMap(String location) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$location',
+    );
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw 'Could not launch map';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('地圖導航'), backgroundColor: Colors.green),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('activities')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final docs = snapshot.data!.docs.where((d) {
+            final data = d.data() as Map<String, dynamic>;
+            return (data['location'] ?? '').toString().isNotEmpty;
+          }).toList();
+
+          if (docs.isEmpty) {
+            return const Center(child: Text('尚無可導航地點'));
+          }
+
+          return ListView.builder(
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final data = docs[i].data() as Map<String, dynamic>;
+              return ListTile(
+                leading: const Icon(Icons.map),
+                title: Text(data['title'] ?? ''),
+                subtitle: Text(data['location']),
+                trailing: const Icon(Icons.directions),
+                onTap: () => _openMap(data['location']),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
