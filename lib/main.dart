@@ -41,6 +41,7 @@ Future<void> main() async {
     await Firebase.initializeApp(options: firebaseOptions);
     FirebaseAnalytics.instance;
   } catch (e) {
+    // ignore: avoid_print
     print("Firebase 初始化訊息: $e");
   }
   runApp(const TohokuTripApp());
@@ -229,6 +230,7 @@ Future<void> runMigrationIfNeeded(String uid) async {
           .set(doc.data());
     }
   } catch (e) {
+    // ignore: avoid_print
     print("Migration error: $e");
   }
 }
@@ -413,6 +415,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
 
+  // ✅ 最後同步時間（你要顯示的欄位）
+  DateTime? _lastFlightSyncTime;
+
   final String _bgImage =
       'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg';
 
@@ -520,6 +525,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        if (!mounted) return;
         setState(() {
           double temp = data['main']['temp'];
           _weatherTemp = "${temp.round()}°";
@@ -529,27 +535,35 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         });
       }
     } catch (e) {
+      // ignore: avoid_print
       print("Error fetching weather: $e");
     }
   }
 
   Future<void> _refreshAllFlights() async {
     try {
-      final snapshot = await _flightsRef.get(); // ✅ users/{uid}/flights
-
+      final snapshot = await _flightsRef.get();
       for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final flightNo = data['flightNo'];
-        if (flightNo != null && flightNo.toString().isNotEmpty) {
-          await _refreshSingleFlight(doc.id, flightNo);
-        }
+        final flightNo = (doc['flightNo'] ?? '').toString();
+        if (flightNo.isEmpty) continue;
+        await _refreshSingleFlight(doc.id, flightNo, showSnackBar: false);
       }
+      if (!mounted) return;
+      setState(() {
+        _lastFlightSyncTime = DateTime.now();
+      });
     } catch (e) {
-      print("Error refreshing all flights: $e");
+      // ignore: avoid_print
+      print("Error refreshing user flights: $e");
     }
   }
 
-  Future<void> _refreshSingleFlight(String docId, String flightNo) async {
+  // ✅ 統一入口：需要 docId + flightNo（你原本報錯最大宗）
+  Future<void> _refreshSingleFlight(
+    String docId,
+    String flightNo, {
+    bool showSnackBar = true,
+  }) async {
     try {
       final info = await _fetchApiData(flightNo);
       if (info == null) return;
@@ -567,7 +581,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       };
 
       // ✅ 更新 UI 用的資料
-      await _flightsRef.doc(docId).update(map);
+      await _flightsRef.doc(docId).set(map, SetOptions(merge: true));
 
       // （選擇性）同步更新 global flights
       await _globalFlightsRef.doc(docId).set({
@@ -575,7 +589,23 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         'flightNo': flightNo,
         'uid': widget.uid,
       }, SetOptions(merge: true));
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastFlightSyncTime = DateTime.now();
+      });
+
+      if (showSnackBar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$flightNo 航班資訊已同步'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
+      // ignore: avoid_print
       print("Error refreshing $flightNo: $e");
     }
   }
@@ -648,7 +678,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     if (trimmedNo.isEmpty) return null;
 
     try {
-      // 改成使用 Flight Schedules API，而不是 flights
       final url = Uri.parse(
         'https://airlabs.co/api/v9/schedules'
         '?flight_iata=$trimmedNo&api_key=$_flightApiKey',
@@ -656,21 +685,22 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
       final response = await http.get(url);
 
-      // 方便除錯：可以看到實際回傳內容
+      // ignore: avoid_print
       print('Airlabs status=${response.statusCode} body=${response.body}');
 
       if (response.statusCode != 200) return null;
 
       final jsonResponse = json.decode(response.body);
 
-      // API 本身的錯誤（例如額度用完、金鑰錯誤）
       if (jsonResponse is Map && jsonResponse['error'] != null) {
+        // ignore: avoid_print
         print('Airlabs error: ${jsonResponse['error']}');
         return null;
       }
 
       final list = jsonResponse['response'];
       if (list == null || list is! List || list.isEmpty) {
+        // ignore: avoid_print
         print('Airlabs no data for flight $trimmedNo');
         return null;
       }
@@ -679,7 +709,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
       String fmt(String? t) {
         if (t == null || t.length < 16) return "";
-        // "2021-07-14 19:53" -> "19:53"
         return t.substring(11, 16);
       }
 
@@ -691,23 +720,17 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         flightNo: (data['flight_iata'] ?? trimmedNo) as String,
         fromCode: (data['dep_iata'] ?? '') as String,
         toCode: (data['arr_iata'] ?? '') as String,
-        // dep_time: "2021-07-14 19:53" -> "07-14"
         date: depTimeStr != null && depTimeStr.length >= 10
             ? depTimeStr.substring(5, 10)
             : '',
-
         schedDep: fmt(depTimeStr),
         schedArr: fmt(arrTimeStr),
-
-        // 有 actual 用 actual，沒有就用 estimated
         estDep: fmt((data['dep_actual'] ?? data['dep_estimated']) as String?),
         estArr: fmt((data['arr_actual'] ?? data['arr_estimated']) as String?),
-
         terminal: (data['dep_terminal'] ?? '-') as String,
         gate: (data['dep_gate'] ?? '-') as String,
-        counter: '-', // 報到櫃檯沒有提供，維持手動輸入
+        counter: '-',
         baggage: (data['arr_baggage'] ?? '-') as String,
-
         status: (data['status'] ?? 'scheduled') as String,
         delay: (() {
           final v = data['dep_delayed'];
@@ -717,6 +740,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
         })(),
       );
     } catch (e, st) {
+      // ignore: avoid_print
       print("Realtime API error: $e\n$st");
       return null;
     }
@@ -988,9 +1012,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     await _globalFlightsRef.doc(ref.id).set({
                       ...map,
                       'uid': widget.uid,
-                    });
+                    }, SetOptions(merge: true));
                   } else {
-                    await _flightsRef.doc(flight.id).update(map);
+                    await _flightsRef
+                        .doc(flight.id)
+                        .set(map, SetOptions(merge: true));
                     await _globalFlightsRef.doc(flight.id).set({
                       ...map,
                       'uid': widget.uid,
@@ -1070,6 +1096,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   }
                 }
               } catch (e) {
+                // ignore: avoid_print
                 print('Currency API Error: $e');
               }
             }
@@ -1158,13 +1185,16 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   ),
                 );
               }
+
               final info = flights[index];
               final isDefault = info.id.startsWith('default');
+
               return GestureDetector(
                 onTap: isDefault ? null : () => _showFlightDetails(info),
+                // ✅ 修正：需要 docId + flightNo
                 onLongPress: isDefault
                     ? null
-                    : () => _refreshSingleFlight(info.flightNo),
+                    : () => _refreshSingleFlight(info.id, info.flightNo),
                 child: _buildCompactFlightCard(info, isDefault: isDefault),
               );
             },
@@ -1229,7 +1259,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       ),
       child: Column(
         children: [
-          // Top row: Airline / status / manual refresh hint
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1275,7 +1304,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ],
           ),
           const SizedBox(height: 10),
-          // Middle: big from/to
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -1334,7 +1362,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               ),
             ),
           const SizedBox(height: 6),
-          // Bottom row: date / terminal / gate / baggage
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1363,6 +1391,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               ),
             ],
           ),
+
           if (!isDefault)
             Align(
               alignment: Alignment.centerRight,
@@ -1370,6 +1399,19 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 '長按卡片可立即重新同步航班資訊',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.45),
+                  fontSize: 10,
+                ),
+              ),
+            ),
+
+          // ✅ 你要的「最後同步時間」
+          if (_lastFlightSyncTime != null && !isDefault)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '最後同步：${DateFormat('HH:mm:ss').format(_lastFlightSyncTime!)}',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.35),
                   fontSize: 10,
                 ),
               ),
@@ -1487,7 +1529,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       icon: const Icon(Icons.refresh),
                       onPressed: () async {
                         Navigator.pop(context);
-                        await _refreshSingleFlight(info.flightNo);
+                        await _refreshSingleFlight(info.id, info.flightNo);
                       },
                     ),
                     IconButton(
@@ -1502,7 +1544,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       onPressed: () async {
                         await _flightsRef.doc(info.id).delete();
                         await _globalFlightsRef.doc(info.id).delete();
-                        Navigator.pop(context);
+                        if (context.mounted) Navigator.pop(context);
                       },
                     ),
                   ],
@@ -1958,7 +2000,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 // ---------------------------------------------------------------------------
 // 以下為既有行程/工具頁面
 // ---------------------------------------------------------------------------
-
 class DayItineraryWidget extends StatelessWidget {
   final int dayIndex;
   final VoidCallback onAddPressed;
@@ -2024,7 +2065,6 @@ class DayItineraryWidget extends StatelessWidget {
   Widget _buildActivityCard(BuildContext context, Activity activity) {
     return GestureDetector(
       onTap: () {
-        // 點擊：開啟行程詳細資訊（只讀，含圖片）
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -2033,7 +2073,6 @@ class DayItineraryWidget extends StatelessWidget {
         );
       },
       onLongPress: () {
-        // 長按：進入行程編輯
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -2432,10 +2471,6 @@ class _ActivityDetailPageState extends State<ActivityDetailPage> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 行程詳細頁（只讀，含圖片）
-// 點擊行程卡會進來；長按才進入編輯。
-// ---------------------------------------------------------------------------
 class ActivityViewPage extends StatelessWidget {
   final Activity activity;
   const ActivityViewPage({super.key, required this.activity});
