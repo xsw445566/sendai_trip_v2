@@ -20,15 +20,80 @@ class ElegantItineraryPage extends StatefulWidget {
 }
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
-  Weather? _displayWeather; // 目前顯示的天氣 (可能是 GPS 或 自訂)
+  Weather? _displayWeather;
   bool _isLoading = true;
-  bool _isUsingGps = true; // 追蹤目前是否在使用 GPS
+  bool _isUsingGps = true;
 
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
   String _currentTime = '';
   Timer? _clockTimer;
 
+  // 日本地區翻譯字典 (含全日本各縣與主要城市)
+  final Map<String, String> _japanTranslation = {
+    // 北海道
+    'Sapporo': '札幌',
+    'Hakodate': '函館',
+    'Asahikawa': '旭川',
+    'Otaru': '小樽',
+    'Kushiro': '釧路',
+    // 東北
+    'Sendai': '仙台',
+    'Aomori': '青森',
+    'Morioka': '盛岡',
+    'Akita': '秋田',
+    'Yamagata': '山形',
+    'Fukushima': '福島',
+    // 關東
+    'Tokyo': '東京',
+    'Yokohama': '橫濱',
+    'Chiba': '千葉',
+    'Saitama': '埼玉',
+    'Kamakura': '鎌倉',
+    'Nikko': '日光',
+    'Hakone': '箱根',
+    'Narita': '成田',
+    // 中部
+    'Nagoya': '名古屋',
+    'Kanazawa': '金澤',
+    'Takayama': '高山',
+    'Niigata': '新潟',
+    'Shizuoka': '靜岡',
+    'Nagano': '長野',
+    'Toyama': '富山',
+    // 近畿
+    'Osaka': '大阪',
+    'Kyoto': '京都',
+    'Nara': '奈良',
+    'Kobe': '神戶',
+    'Himeji': '姬路',
+    'Otsu': '大津',
+    'Wakayama': '和歌山',
+    // 中國四國
+    'Hiroshima': '廣島',
+    'Okayama': '岡山',
+    'Matsuyama': '松山',
+    'Takamatsu': '高松',
+    'Tokushima': '德島',
+    'Kochi': '高知',
+    // 九州沖繩
+    'Fukuoka': '福岡',
+    'Kumamoto': '熊本',
+    'Kagoshima': '鹿兒島',
+    'Nagasaki': '長崎',
+    'Oita': '大分',
+    'Okinawa': '沖繩',
+    'Naha': '那霸',
+    'Miyazaki': '宮崎',
+    // 行政區與其他
+    'Shinjuku': '新宿',
+    'Shibuya': '澀谷',
+    'Minato': '港區',
+    'Chuo': '中央區',
+    'Taito': '台東區',
+  };
+
+  // 全日本地區分類選擇清單
   final Map<String, List<String>> _japanRegions = {
     '北海道': ['Sapporo', 'Hakodate', 'Asahikawa', 'Otaru'],
     '東北': ['Sendai', 'Aomori', 'Morioka', 'Akita', 'Yamagata', 'Fukushima'],
@@ -43,15 +108,21 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     ],
     '中部': ['Nagoya', 'Kanazawa', 'Takayama', 'Niigata', 'Shizuoka', 'Nagano'],
     '近畿': ['Osaka', 'Kyoto', 'Nara', 'Kobe', 'Himeji', 'Wakayama'],
-    '中國': ['Hiroshima', 'Okayama', 'Matsue', 'Tottori'],
-    '四國': ['Takamatsu', 'Matsuyama', 'Tokushima', 'Kochi'],
+    '中國四國': [
+      'Hiroshima',
+      'Okayama',
+      'Matsuyama',
+      'Takamatsu',
+      'Tokushima',
+      'Kochi',
+    ],
     '九州沖繩': ['Fukuoka', 'Kumamoto', 'Kagoshima', 'Nagasaki', 'Oita', 'Okinawa'],
   };
 
   @override
   void initState() {
     super.initState();
-    _loadGpsWeather(); // 預設進場使用 GPS 定位
+    _loadGpsWeather();
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (t) => _updateTime(),
@@ -65,7 +136,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.dispose();
   }
 
-  // --- 核心天氣載入邏輯 ---
+  // 地名翻譯函式
+  String _translateCity(String city) {
+    if (city.isEmpty) return "定位中";
+    return _japanTranslation[city] ?? city;
+  }
+
+  // GPS 天氣載入
   Future<void> _loadGpsWeather() async {
     setState(() {
       _isLoading = true;
@@ -82,10 +159,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
-      debugPrint("GPS Error: $e");
+      debugPrint("GPS 定位失敗: $e");
     }
   }
 
+  // 指定區域天氣載入
   Future<void> _loadCustomWeather(String city) async {
     setState(() {
       _isLoading = true;
@@ -101,9 +179,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     }
   }
 
+  // 自動時區時間更新
   void _updateTime() {
     if (!mounted) return;
     DateTime now = DateTime.now().toUtc();
+    // 根據當前顯示的天氣區域時區偏移量計算時間
     if (_displayWeather != null) {
       now = now.add(Duration(seconds: _displayWeather!.timezone));
     } else {
@@ -115,13 +195,14 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     });
   }
 
+  // 全日本行政區選擇器
   void _showLocationPicker() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
-        height: MediaQuery.of(context).size.height * 0.75,
+        height: MediaQuery.of(context).size.height * 0.8,
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
@@ -131,7 +212,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             const Padding(
               padding: EdgeInsets.all(20),
               child: Text(
-                "切換天氣區域",
+                "切換天氣顯示區域",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
@@ -157,6 +238,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           (city) => ListTile(
                             title: Text(_translateCity(city)),
                             subtitle: Text(city),
+                            trailing: const Icon(Icons.chevron_right, size: 16),
                             onTap: () {
                               _loadCustomWeather(city);
                               Navigator.pop(ctx);
@@ -174,30 +256,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  String _translateCity(String city) {
-    Map<String, String> names = {
-      'Sapporo': '札幌',
-      'Sendai': '仙台',
-      'Tokyo': '東京',
-      'Yokohama': '橫濱',
-      'Osaka': '大阪',
-      'Kyoto': '京都',
-      'Nara': '奈良',
-      'Fukuoka': '福岡',
-      'Okinawa': '沖繩',
-      'Nagoya': '名古屋',
-      'Hiroshima': '廣島',
-      'Kobe': '神戶',
-    };
-    return names[city] ?? city;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // 背景漸層
+          // 星宇航空風格背景
           Positioned(
             top: 0,
             left: 0,
@@ -209,6 +273,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 Image.network(
                   'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg',
                   fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(color: Colors.grey),
                 ),
                 Container(
                   decoration: BoxDecoration(
@@ -229,7 +294,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           SafeArea(
             child: Column(
               children: [
-                _buildElegantHeader(), // 全新設計的 Header
+                _buildHeader(),
                 const FlightCarousel(),
                 const SizedBox(height: 10),
                 _buildDaySelector(),
@@ -254,15 +319,15 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  // --- 全新精緻 Header UI ---
-  Widget _buildElegantHeader() {
+  // 全新整合的 Header UI
+  Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 左側：大時間
+          // 左側時間 (自動跳轉時區)
           Text(
             _currentTime,
             style: const TextStyle(
@@ -273,16 +338,16 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             ),
           ),
 
-          // 右側：整合天氣資訊區塊
+          // 右側天氣資訊 (整合 GPS 與 地區名稱)
           GestureDetector(
             onTap: _showLocationPicker,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.black.withAlpha(60),
+                color: Colors.black.withAlpha(70),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: Colors.white.withAlpha(30),
+                  color: Colors.white.withAlpha(40),
                   width: 0.5,
                 ),
               ),
@@ -299,17 +364,16 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        _isUsingGps ? "當前位置" : "指定區域",
+                        _isUsingGps ? "當前定位" : "指定區域",
                         style: const TextStyle(
                           color: Color(0xFFD4C5A9),
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   if (_isLoading)
                     const SizedBox(
                       width: 15,
