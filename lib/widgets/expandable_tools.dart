@@ -4,6 +4,7 @@ import '../pages/packing_list_page.dart';
 import '../pages/shopping_list_page.dart';
 import '../pages/translator_page.dart';
 import '../pages/map_list_page.dart';
+import '../pages/currency_page.dart'; // 確保引用了新建立的匯率頁面
 import 'advanced_split_bill_dialog.dart';
 
 class ExpandableTools extends StatefulWidget {
@@ -32,6 +33,9 @@ class _ExpandableToolsState extends State<ExpandableTools> {
       case '地圖':
         page = const MapListPage();
         break;
+      case '匯率':
+        page = const CurrencyPage();
+        break; // 修改這裡，跳轉到新頁面
       case '分帳':
         showDialog(
           context: context,
@@ -66,7 +70,6 @@ class _ExpandableToolsState extends State<ExpandableTools> {
       ),
       child: Column(
         children: [
-          // 頂部把手與標題
           InkWell(
             onTap: () => setState(() => _isExpanded = !_isExpanded),
             child: Column(
@@ -109,7 +112,6 @@ class _ExpandableToolsState extends State<ExpandableTools> {
               ],
             ),
           ),
-          // 橫向滑動工具列
           if (_isExpanded)
             Expanded(
               child: ListView(
@@ -122,9 +124,13 @@ class _ExpandableToolsState extends State<ExpandableTools> {
                   _toolCard(Icons.luggage, '行李', Colors.blue),
                   _toolCard(Icons.shopping_bag, '必買', Colors.pink),
                   _toolCard(Icons.translate, '翻譯', Colors.purple),
+                  _toolCard(
+                    Icons.currency_exchange,
+                    '匯率',
+                    Colors.orange,
+                  ), // 匯率按鈕
                   _toolCard(Icons.diversity_3, '分帳', Colors.teal),
                   _toolCard(Icons.map, '地圖', Colors.green),
-                  _toolCard(Icons.currency_exchange, '匯率', Colors.orange),
                   _toolCard(Icons.logout, '登出', Colors.red),
                 ],
               ),

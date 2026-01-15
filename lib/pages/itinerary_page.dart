@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
 import '../models/activity.dart';
 import '../models/weather.dart';
 import '../services/weather_service.dart';
@@ -29,9 +30,9 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   String _currentTime = '';
   Timer? _clockTimer;
 
-  // 全日本地區資料
+  // 全日本地區清單
   final Map<String, List<String>> _japanRegions = {
-    '北海道': ['Sapporo', 'Hakodate', 'Asahikawa', 'Otaru', 'Kushiro'],
+    '北海道': ['Sapporo', 'Hakodate', 'Asahikawa', 'Otaru'],
     '東北': ['Sendai', 'Aomori', 'Morioka', 'Akita', 'Yamagata', 'Fukushima'],
     '關東': [
       'Tokyo',
@@ -42,33 +43,18 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       'Nikko',
       'Hakone',
     ],
-    '中部': [
-      'Nagoya',
-      'Kanazawa',
-      'Takayama',
-      'Niigata',
-      'Shizuoka',
-      'Nagano',
-      'Toyama',
-    ],
-    '近畿': ['Osaka', 'Kyoto', 'Nara', 'Kobe', 'Himeji', 'Otsu', 'Wakayama'],
-    '中國': ['Hiroshima', 'Okayama', 'Matsue', 'Tottori', 'Yamaguchi'],
+    '中部': ['Nagoya', 'Kanazawa', 'Takayama', 'Niigata', 'Shizuoka', 'Nagano'],
+    '近畿': ['Osaka', 'Kyoto', 'Nara', 'Kobe', 'Himeji', 'Wakayama'],
+    '中國': ['Hiroshima', 'Okayama', 'Matsue', 'Tottori'],
     '四國': ['Takamatsu', 'Matsuyama', 'Tokushima', 'Kochi'],
-    '九州沖繩': [
-      'Fukuoka',
-      'Kumamoto',
-      'Kagoshima',
-      'Nagasaki',
-      'Oita',
-      'Okinawa',
-      'Miyazaki',
-    ],
+    '九州沖繩': ['Fukuoka', 'Kumamoto', 'Kagoshima', 'Nagasaki', 'Oita', 'Okinawa'],
   };
 
   @override
   void initState() {
     super.initState();
     _initWeather();
+    // 每一秒更新一次時鐘
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (t) => _updateTime(),
@@ -83,24 +69,58 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   }
 
   Future<void> _initWeather() async {
-    // 預設同時抓取 GPS 和 仙台 天氣
+    // 初始化時自動抓取 GPS 與 預設自訂城市 (仙台)
     _loadGpsWeather();
     _loadCustomWeather("Sendai");
   }
 
+  // --- GPS 定位修復版 ---
   Future<void> _loadGpsWeather() async {
+    if (!mounted) return;
     setState(() => _isGpsLoading = true);
-    final w = await WeatherService.fetchWeatherByLocation();
-    if (mounted) {
-      setState(() {
-        _gpsWeather = w;
-        _isGpsLoading = false;
-      });
-      _updateTime();
+
+    try {
+      final w = await WeatherService.fetchWeatherByLocation();
+      if (mounted) {
+        if (w != null) {
+          setState(() {
+            _gpsWeather = w;
+            _isGpsLoading = false;
+          });
+          _updateTime();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("GPS 定位天氣已更新"),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        } else {
+          throw "定位回傳為空，請確認 GPS 已開啟";
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isGpsLoading = false);
+        // 如果定位失敗，彈出對話框告知原因 (通常是權限問題)
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text("定位服務提示"),
+            content: Text("無法取得 GPS 位置：$e\n請檢查手機的定位權限是否已開啟。"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("確定"),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
   Future<void> _loadCustomWeather(String city) async {
+    if (!mounted) return;
     setState(() => _isCustomLoading = true);
     final w = await WeatherService.fetchWeatherByCity(city);
     if (mounted) {
@@ -115,11 +135,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   void _updateTime() {
     if (!mounted) return;
     DateTime now = DateTime.now().toUtc();
-    // 優先依照「自訂區域」的時區顯示時間
+    // 依照「自訂區域」的時區偏移量計算時間
     if (_customWeather != null) {
       now = now.add(Duration(seconds: _customWeather!.timezone));
     } else {
-      now = DateTime.now();
+      now = DateTime.now(); // 預設本地時間
     }
     setState(() {
       _currentTime =
@@ -144,7 +164,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             const Padding(
               padding: EdgeInsets.all(20),
               child: Text(
-                "切換天氣顯示區域",
+                "選擇天氣區域",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
@@ -170,7 +190,6 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                           (city) => ListTile(
                             title: Text(_translateCity(city)),
                             subtitle: Text(city),
-                            trailing: const Icon(Icons.chevron_right, size: 16),
                             onTap: () {
                               _loadCustomWeather(city);
                               Navigator.pop(ctx);
@@ -191,20 +210,20 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   String _translateCity(String city) {
     Map<String, String> names = {
       'Sapporo': '札幌',
-      'Hakodate': '函館',
       'Sendai': '仙台',
       'Tokyo': '東京',
       'Yokohama': '橫濱',
-      'Nagoya': '名古屋',
       'Osaka': '大阪',
       'Kyoto': '京都',
       'Nara': '奈良',
-      'Kobe': '神戶',
-      'Hiroshima': '廣島',
       'Fukuoka': '福岡',
       'Okinawa': '沖繩',
+      'Nagoya': '名古屋',
+      'Hiroshima': '廣島',
       'Nikko': '日光',
       'Hakone': '箱根',
+      'Kobe': '神戶',
+      'Kamakura': '鎌倉',
     };
     return names[city] ?? city;
   }
@@ -214,7 +233,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // 背景
+          // 星宇高級背景
           Positioned(
             top: 0,
             left: 0,
@@ -277,7 +296,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 左側時間 + GPS 定位
+          // 左側：自動時區時間 + GPS 定位資訊
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -291,7 +310,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
               ),
               if (_isGpsLoading)
                 const Text(
-                  "GPS 定位中...",
+                  "定位中...",
                   style: TextStyle(color: Colors.white54, fontSize: 10),
                 )
               else if (_gpsWeather != null)
@@ -310,7 +329,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 ),
             ],
           ),
-          // 右側自訂區域 (可點擊切換)
+          // 右側：自訂選擇區域 (可點擊)
           GestureDetector(
             onTap: _showLocationPicker,
             child: Container(
@@ -323,7 +342,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   const Text(
-                    "自訂區域天氣 ▾",
+                    "自訂天氣區域 ▾",
                     style: TextStyle(
                       color: Color(0xFFD4C5A9),
                       fontSize: 10,
@@ -341,7 +360,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                     )
                   else if (_customWeather != null) ...[
                     Text(
-                      _customWeather!.cityName,
+                      _translateCity(_customWeather!.cityName),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
