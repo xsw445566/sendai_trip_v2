@@ -36,6 +36,7 @@ dependencies:
   url_launcher: ^6.3.2
   flutter_tts: ^4.2.3
   cupertino_icons: ^1.0.8
+  geolocator: ^11.0.0
 
   # Firebase（統一 v4 世代，完全相容 storage）
   firebase_core: ^4.2.1
