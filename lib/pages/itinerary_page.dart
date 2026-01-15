@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/activity.dart';
 import '../models/weather.dart';
 import '../services/weather_service.dart';
@@ -20,16 +21,54 @@ class ElegantItineraryPage extends StatefulWidget {
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   Weather? _gpsWeather;
   Weather? _customWeather;
-  bool _isLoading = true;
+  bool _isGpsLoading = true;
+  bool _isCustomLoading = true;
+
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
   String _currentTime = '';
   Timer? _clockTimer;
 
+  // 全日本地區資料
+  final Map<String, List<String>> _japanRegions = {
+    '北海道': ['Sapporo', 'Hakodate', 'Asahikawa', 'Otaru', 'Kushiro'],
+    '東北': ['Sendai', 'Aomori', 'Morioka', 'Akita', 'Yamagata', 'Fukushima'],
+    '關東': [
+      'Tokyo',
+      'Yokohama',
+      'Chiba',
+      'Saitama',
+      'Kamakura',
+      'Nikko',
+      'Hakone',
+    ],
+    '中部': [
+      'Nagoya',
+      'Kanazawa',
+      'Takayama',
+      'Niigata',
+      'Shizuoka',
+      'Nagano',
+      'Toyama',
+    ],
+    '近畿': ['Osaka', 'Kyoto', 'Nara', 'Kobe', 'Himeji', 'Otsu', 'Wakayama'],
+    '中國': ['Hiroshima', 'Okayama', 'Matsue', 'Tottori', 'Yamaguchi'],
+    '四國': ['Takamatsu', 'Matsuyama', 'Tokushima', 'Kochi'],
+    '九州沖繩': [
+      'Fukuoka',
+      'Kumamoto',
+      'Kagoshima',
+      'Nagasaki',
+      'Oita',
+      'Okinawa',
+      'Miyazaki',
+    ],
+  };
+
   @override
   void initState() {
     super.initState();
-    _initData();
+    _initWeather();
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (t) => _updateTime(),
@@ -43,17 +82,31 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.dispose();
   }
 
-  Future<void> _initData() async {
-    // 同時抓取 GPS 和 預設自訂城市 (仙台)
-    final results = await Future.wait([
-      WeatherService.fetchWeatherByLocation(),
-      WeatherService.fetchWeatherByCity("Sendai"),
-    ]);
+  Future<void> _initWeather() async {
+    // 預設同時抓取 GPS 和 仙台 天氣
+    _loadGpsWeather();
+    _loadCustomWeather("Sendai");
+  }
+
+  Future<void> _loadGpsWeather() async {
+    setState(() => _isGpsLoading = true);
+    final w = await WeatherService.fetchWeatherByLocation();
     if (mounted) {
       setState(() {
-        _gpsWeather = results[0];
-        _customWeather = results[1];
-        _isLoading = false;
+        _gpsWeather = w;
+        _isGpsLoading = false;
+      });
+      _updateTime();
+    }
+  }
+
+  Future<void> _loadCustomWeather(String city) async {
+    setState(() => _isCustomLoading = true);
+    final w = await WeatherService.fetchWeatherByCity(city);
+    if (mounted) {
+      setState(() {
+        _customWeather = w;
+        _isCustomLoading = false;
       });
       _updateTime();
     }
@@ -61,45 +114,99 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
 
   void _updateTime() {
     if (!mounted) return;
-    // 如果有自訂城市，依照該城市時區顯示時間，否則顯示系統時間
     DateTime now = DateTime.now().toUtc();
+    // 優先依照「自訂區域」的時區顯示時間
     if (_customWeather != null) {
       now = now.add(Duration(seconds: _customWeather!.timezone));
     } else {
-      now = DateTime.now(); // 預設本地
+      now = DateTime.now();
     }
-
     setState(() {
       _currentTime =
           "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
     });
   }
 
-  void _changeCustomCity() {
-    final TextEditingController cityC = TextEditingController();
-    showDialog(
+  // 地區選擇器 BottomSheet
+  void _showLocationPicker() {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("自訂區域天氣"),
-        content: TextField(
-          controller: cityC,
-          decoration: const InputDecoration(hintText: "輸入城市名稱 (如: Tokyo)"),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
         ),
-        actions: [
-          ElevatedButton(
-            onPressed: () async {
-              final w = await WeatherService.fetchWeatherByCity(cityC.text);
-              if (w != null && mounted) {
-                setState(() => _customWeather = w);
-                _updateTime();
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text(
+                "切換天氣顯示區域",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.my_location, color: Colors.blue),
+              title: const Text("使用 GPS 自動定位"),
+              onTap: () {
+                _loadGpsWeather();
                 Navigator.pop(ctx);
-              }
-            },
-            child: const Text("切換"),
-          ),
-        ],
+              },
+            ),
+            const Divider(),
+            Expanded(
+              child: ListView(
+                children: _japanRegions.entries.map((region) {
+                  return ExpansionTile(
+                    title: Text(
+                      region.key,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    children: region.value
+                        .map(
+                          (city) => ListTile(
+                            title: Text(_translateCity(city)),
+                            subtitle: Text(city),
+                            trailing: const Icon(Icons.chevron_right, size: 16),
+                            onTap: () {
+                              _loadCustomWeather(city);
+                              Navigator.pop(ctx);
+                            },
+                          ),
+                        )
+                        .toList(),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  String _translateCity(String city) {
+    Map<String, String> names = {
+      'Sapporo': '札幌',
+      'Hakodate': '函館',
+      'Sendai': '仙台',
+      'Tokyo': '東京',
+      'Yokohama': '橫濱',
+      'Nagoya': '名古屋',
+      'Osaka': '大阪',
+      'Kyoto': '京都',
+      'Nara': '奈良',
+      'Kobe': '神戶',
+      'Hiroshima': '廣島',
+      'Fukuoka': '福岡',
+      'Okinawa': '沖繩',
+      'Nikko': '日光',
+      'Hakone': '箱根',
+    };
+    return names[city] ?? city;
   }
 
   @override
@@ -107,11 +214,39 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     return Scaffold(
       body: Stack(
         children: [
-          _buildBackground(),
+          // 背景
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 400,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg',
+                  fit: BoxFit.cover,
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black54,
+                        Colors.white.withAlpha(20),
+                        const Color(0xFFF5F5F5),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           SafeArea(
             child: Column(
               children: [
-                _buildDualWeatherHeader(),
+                _buildDualHeader(),
                 const FlightCarousel(),
                 const SizedBox(height: 10),
                 _buildDaySelector(),
@@ -136,44 +271,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  Widget _buildBackground() {
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 400,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.network(
-            'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg',
-            fit: BoxFit.cover,
-          ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black54,
-                  Colors.white.withAlpha(20),
-                  const Color(0xFFF5F5F5),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDualWeatherHeader() {
+  Widget _buildDualHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 左側：時間與 GPS 天氣
+          // 左側時間 + GPS 定位
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -185,54 +289,75 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                   color: Colors.white,
                 ),
               ),
-              if (_gpsWeather != null)
+              if (_isGpsLoading)
+                const Text(
+                  "GPS 定位中...",
+                  style: TextStyle(color: Colors.white54, fontSize: 10),
+                )
+              else if (_gpsWeather != null)
                 Row(
                   children: [
-                    const Icon(Icons.near_me, size: 12, color: Colors.white70),
+                    const Icon(Icons.near_me, size: 10, color: Colors.white70),
                     const SizedBox(width: 4),
                     Text(
                       "${_gpsWeather!.temperature.round()}° ${_gpsWeather!.cityName}",
                       style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 12,
+                        fontSize: 11,
                       ),
                     ),
                   ],
                 ),
             ],
           ),
-          // 右側：自訂區域天氣
+          // 右側自訂區域 (可點擊切換)
           GestureDetector(
-            onTap: _changeCustomCity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const Text(
-                  "自訂區域",
-                  style: TextStyle(color: Colors.white54, fontSize: 10),
-                ),
-                if (_customWeather != null) ...[
-                  Text(
-                    _customWeather!.cityName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                  Text(
-                    "${_customWeather!.temperature.round()}° ${_customWeather!.description}",
-                    style: const TextStyle(
-                      color: Color(0xFFD4C5A9),
-                      fontSize: 12,
-                    ),
-                  ),
-                ] else
+            onTap: _showLocationPicker,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
                   const Text(
-                    "點擊設置",
-                    style: TextStyle(color: Colors.white, fontSize: 14),
+                    "自訂區域天氣 ▾",
+                    style: TextStyle(
+                      color: Color(0xFFD4C5A9),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-              ],
+                  if (_isCustomLoading)
+                    const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  else if (_customWeather != null) ...[
+                    Text(
+                      _customWeather!.cityName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      "${_customWeather!.temperature.round()}° ${_customWeather!.description}",
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],
@@ -310,7 +435,7 @@ class DayItineraryWidget extends StatelessWidget {
                 .toList();
             activities.sort((a, b) => a.time.compareTo(b.time));
             return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 120),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 130),
               itemCount: activities.length,
               itemBuilder: (ctx, index) =>
                   ActivityCard(activity: activities[index]),

@@ -7,7 +7,6 @@ import '../services/flight_api_service.dart';
 class FlightCarousel extends StatelessWidget {
   const FlightCarousel({super.key});
 
-  // 1. 航班狀態中文化轉換
   String _translateStatus(String status) {
     switch (status.toLowerCase()) {
       case 'landed':
@@ -27,7 +26,6 @@ class FlightCarousel extends StatelessWidget {
     }
   }
 
-  // 狀態顏色對應
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'landed':
@@ -37,7 +35,7 @@ class FlightCarousel extends StatelessWidget {
       case 'cancelled':
         return Colors.redAccent;
       default:
-        return const Color(0xFFD4C5A9); // 星宇金
+        return const Color(0xFFD4C5A9);
     }
   }
 
@@ -59,14 +57,12 @@ class FlightCarousel extends StatelessWidget {
         }
 
         return SizedBox(
-          height: 195,
+          height: 200, // 稍微增加高度以容納延誤資訊
           child: PageView.builder(
             itemCount: flights.length + 1,
             controller: PageController(viewportFraction: 0.92),
             itemBuilder: (ctx, index) {
-              if (index == flights.length) {
-                return _buildAddCard(context);
-              }
+              if (index == flights.length) return _buildAddCard(context);
               final flight = flights[index];
               return GestureDetector(
                 onTap: () => _showFlightDetails(context, flight),
@@ -80,11 +76,12 @@ class FlightCarousel extends StatelessWidget {
     );
   }
 
-  // 星宇質感機票卡片
   Widget _buildStarluxCard(FlightInfo info) {
+    final bool isDelayed = info.delay > 0;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
@@ -110,31 +107,52 @@ class FlightCarousel extends StatelessWidget {
                 style: const TextStyle(
                   color: Color(0xFFD4C5A9),
                   fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
+                  letterSpacing: 1.2,
                   fontSize: 13,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: _getStatusColor(info.status).withAlpha(40),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _getStatusColor(info.status).withAlpha(100),
-                    width: 0.5,
+              Row(
+                children: [
+                  // 延誤標籤：僅在延誤時顯示
+                  if (isDelayed)
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withAlpha(200),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '延誤 ${info.delay}m',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(info.status).withAlpha(40),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _translateStatus(info.status),
+                      style: TextStyle(
+                        color: _getStatusColor(info.status),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
-                child: Text(
-                  _translateStatus(info.status),
-                  style: TextStyle(
-                    color: _getStatusColor(info.status),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                ],
               ),
             ],
           ),
@@ -142,9 +160,17 @@ class FlightCarousel extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _airportBlock(info.fromCode, info.schedDep),
-              const Icon(Icons.flight_takeoff, color: Colors.white24, size: 28),
-              _airportBlock(info.toCode, info.schedArr),
+              _airportBlock(
+                info.fromCode,
+                info.schedDep,
+                actualTime: isDelayed ? info.estDep : null,
+              ),
+              const Icon(Icons.flight_takeoff, color: Colors.white24, size: 24),
+              _airportBlock(
+                info.toCode,
+                info.schedArr,
+                actualTime: isDelayed ? info.estArr : null,
+              ),
             ],
           ),
           const Spacer(),
@@ -161,18 +187,31 @@ class FlightCarousel extends StatelessWidget {
     );
   }
 
-  Widget _airportBlock(String code, String time) {
+  Widget _airportBlock(String code, String schedTime, {String? actualTime}) {
     return Column(
       children: [
         Text(
           code,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 28,
+            fontSize: 26,
             fontWeight: FontWeight.bold,
           ),
         ),
-        Text(time, style: const TextStyle(color: Colors.white70, fontSize: 15)),
+        if (actualTime != null && actualTime.isNotEmpty)
+          Text(
+            actualTime,
+            style: const TextStyle(
+              color: Colors.orangeAccent, // 延誤時顯示顯眼的橘色
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          )
+        else
+          Text(
+            schedTime,
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
       ],
     );
   }
@@ -181,17 +220,13 @@ class FlightCarousel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white38, fontSize: 10),
-        ),
-        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(color: Colors.white38, fontSize: 9)),
         Text(
           val.isEmpty || val == "-" ? "待定" : val,
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
-            fontSize: 13,
+            fontSize: 12,
           ),
         ),
       ],
@@ -204,104 +239,64 @@ class FlightCarousel extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withAlpha(20),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withAlpha(40), width: 1),
+        border: Border.all(color: Colors.white.withAlpha(40)),
       ),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.add_circle_outline, size: 44, color: Colors.white60),
-          SizedBox(height: 8),
-          Text("新增航班", style: TextStyle(color: Colors.white60, fontSize: 12)),
-        ],
+      child: const Center(
+        child: Icon(Icons.add_circle_outline, size: 40, color: Colors.white54),
       ),
     );
   }
 
-  // 點擊卡片彈出的詳細資訊
   void _showFlightDetails(BuildContext context, FlightInfo flight) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(28),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            const SizedBox(height: 20),
             Text(
               "${flight.flightNo} 航班詳情",
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 10),
             const Divider(),
             _detailRow(
-              "預計/實際起飛",
-              flight.estDep.isEmpty ? "依表定時間" : flight.estDep,
+              "預計起飛",
+              flight.estDep.isEmpty ? flight.schedDep : flight.estDep,
             ),
             _detailRow(
-              "預計/實際抵達",
-              flight.estArr.isEmpty ? "依表定時間" : flight.estArr,
+              "預計抵達",
+              flight.estArr.isEmpty ? flight.schedArr : flight.estArr,
             ),
-            _detailRow(
-              "報到櫃檯",
-              flight.counter.isEmpty || flight.counter == "-"
-                  ? "尚未公佈"
-                  : flight.counter,
-            ),
-            _detailRow("狀態", _translateStatus(flight.status)),
-            _detailRow(
-              "延誤情形",
-              flight.delay > 0 ? "延誤 ${flight.delay} 分鐘" : "準點",
-            ),
-            const SizedBox(height: 30),
+            _detailRow("延誤時間", flight.delay > 0 ? "${flight.delay} 分鐘" : "準點"),
+            _detailRow("報到櫃檯", flight.counter),
           ],
         ),
       ),
     );
   }
 
-  Widget _detailRow(String label, String val) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-          Text(
-            val,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _detailRow(String label, String val) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label),
+        Text(val, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ],
+    ),
+  );
 
-  // 長按同步航班資訊
   Future<void> _syncFlight(
     BuildContext context,
     String uid,
     FlightInfo flight,
   ) async {
-    // 顯示 Loading
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text("正在同步 ${flight.flightNo} 資訊...")));
-
     final info = await FlightApiService.fetchApiData(flight.flightNo);
-
     if (!context.mounted) return;
-
     if (info != null) {
       await FirebaseFirestore.instance
           .collection('users')
@@ -309,15 +304,9 @@ class FlightCarousel extends StatelessWidget {
           .collection('flights')
           .doc(flight.id)
           .update(info.toMap());
-
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text("航班資訊已更新至最新狀態")));
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("暫時無法取得最新資訊，請稍後再試")));
+      ).showSnackBar(const SnackBar(content: Text("航班資訊已同步")));
     }
   }
 }
