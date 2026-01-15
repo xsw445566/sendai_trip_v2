@@ -20,17 +20,15 @@ class ElegantItineraryPage extends StatefulWidget {
 }
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
-  Weather? _gpsWeather;
-  Weather? _customWeather;
-  bool _isGpsLoading = true;
-  bool _isCustomLoading = true;
+  Weather? _displayWeather; // 目前顯示的天氣 (可能是 GPS 或 自訂)
+  bool _isLoading = true;
+  bool _isUsingGps = true; // 追蹤目前是否在使用 GPS
 
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
   String _currentTime = '';
   Timer? _clockTimer;
 
-  // 全日本地區清單
   final Map<String, List<String>> _japanRegions = {
     '北海道': ['Sapporo', 'Hakodate', 'Asahikawa', 'Otaru'],
     '東北': ['Sendai', 'Aomori', 'Morioka', 'Akita', 'Yamagata', 'Fukushima'],
@@ -53,8 +51,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   @override
   void initState() {
     super.initState();
-    _initWeather();
-    // 每一秒更新一次時鐘
+    _loadGpsWeather(); // 預設進場使用 GPS 定位
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (t) => _updateTime(),
@@ -68,65 +65,37 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.dispose();
   }
 
-  Future<void> _initWeather() async {
-    // 初始化時自動抓取 GPS 與 預設自訂城市 (仙台)
-    _loadGpsWeather();
-    _loadCustomWeather("Sendai");
-  }
-
-  // --- GPS 定位修復版 ---
+  // --- 核心天氣載入邏輯 ---
   Future<void> _loadGpsWeather() async {
-    if (!mounted) return;
-    setState(() => _isGpsLoading = true);
-
+    setState(() {
+      _isLoading = true;
+      _isUsingGps = true;
+    });
     try {
       final w = await WeatherService.fetchWeatherByLocation();
-      if (mounted) {
-        if (w != null) {
-          setState(() {
-            _gpsWeather = w;
-            _isGpsLoading = false;
-          });
-          _updateTime();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("GPS 定位天氣已更新"),
-              duration: Duration(seconds: 1),
-            ),
-          );
-        } else {
-          throw "定位回傳為空，請確認 GPS 已開啟";
-        }
+      if (mounted && w != null) {
+        setState(() {
+          _displayWeather = w;
+          _isLoading = false;
+        });
+        _updateTime();
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _isGpsLoading = false);
-        // 如果定位失敗，彈出對話框告知原因 (通常是權限問題)
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("定位服務提示"),
-            content: Text("無法取得 GPS 位置：$e\n請檢查手機的定位權限是否已開啟。"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("確定"),
-              ),
-            ],
-          ),
-        );
-      }
+      if (mounted) setState(() => _isLoading = false);
+      debugPrint("GPS Error: $e");
     }
   }
 
   Future<void> _loadCustomWeather(String city) async {
-    if (!mounted) return;
-    setState(() => _isCustomLoading = true);
+    setState(() {
+      _isLoading = true;
+      _isUsingGps = false;
+    });
     final w = await WeatherService.fetchWeatherByCity(city);
-    if (mounted) {
+    if (mounted && w != null) {
       setState(() {
-        _customWeather = w;
-        _isCustomLoading = false;
+        _displayWeather = w;
+        _isLoading = false;
       });
       _updateTime();
     }
@@ -135,11 +104,10 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   void _updateTime() {
     if (!mounted) return;
     DateTime now = DateTime.now().toUtc();
-    // 依照「自訂區域」的時區偏移量計算時間
-    if (_customWeather != null) {
-      now = now.add(Duration(seconds: _customWeather!.timezone));
+    if (_displayWeather != null) {
+      now = now.add(Duration(seconds: _displayWeather!.timezone));
     } else {
-      now = DateTime.now(); // 預設本地時間
+      now = DateTime.now();
     }
     setState(() {
       _currentTime =
@@ -147,14 +115,13 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     });
   }
 
-  // 地區選擇器 BottomSheet
   void _showLocationPicker() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
-        height: MediaQuery.of(context).size.height * 0.8,
+        height: MediaQuery.of(context).size.height * 0.75,
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
@@ -164,12 +131,12 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
             const Padding(
               padding: EdgeInsets.all(20),
               child: Text(
-                "選擇天氣區域",
+                "切換天氣區域",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.my_location, color: Colors.blue),
+              leading: const Icon(Icons.my_location, color: Color(0xFF9E8B6E)),
               title: const Text("使用 GPS 自動定位"),
               onTap: () {
                 _loadGpsWeather();
@@ -220,10 +187,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
       'Okinawa': '沖繩',
       'Nagoya': '名古屋',
       'Hiroshima': '廣島',
-      'Nikko': '日光',
-      'Hakone': '箱根',
       'Kobe': '神戶',
-      'Kamakura': '鎌倉',
     };
     return names[city] ?? city;
   }
@@ -233,7 +197,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // 星宇高級背景
+          // 背景漸層
           Positioned(
             top: 0,
             left: 0,
@@ -265,7 +229,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
           SafeArea(
             child: Column(
               children: [
-                _buildDualHeader(),
+                _buildElegantHeader(), // 全新設計的 Header
                 const FlightCarousel(),
                 const SizedBox(height: 10),
                 _buildDaySelector(),
@@ -290,66 +254,63 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  Widget _buildDualHeader() {
+  // --- 全新精緻 Header UI ---
+  Widget _buildElegantHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 左側：自動時區時間 + GPS 定位資訊
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _currentTime,
-                style: const TextStyle(
-                  fontSize: 42,
-                  fontWeight: FontWeight.w200,
-                  color: Colors.white,
-                ),
-              ),
-              if (_isGpsLoading)
-                const Text(
-                  "定位中...",
-                  style: TextStyle(color: Colors.white54, fontSize: 10),
-                )
-              else if (_gpsWeather != null)
-                Row(
-                  children: [
-                    const Icon(Icons.near_me, size: 10, color: Colors.white70),
-                    const SizedBox(width: 4),
-                    Text(
-                      "${_gpsWeather!.temperature.round()}° ${_gpsWeather!.cityName}",
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-            ],
+          // 左側：大時間
+          Text(
+            _currentTime,
+            style: const TextStyle(
+              fontSize: 48,
+              fontWeight: FontWeight.w200,
+              color: Colors.white,
+              letterSpacing: -1,
+            ),
           ),
-          // 右側：自訂選擇區域 (可點擊)
+
+          // 右側：整合天氣資訊區塊
           GestureDetector(
             onTap: _showLocationPicker,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.black26,
-                borderRadius: BorderRadius.circular(15),
+                color: Colors.black.withAlpha(60),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: Colors.white.withAlpha(30),
+                  width: 0.5,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  const Text(
-                    "自訂天氣區域 ▾",
-                    style: TextStyle(
-                      color: Color(0xFFD4C5A9),
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _isUsingGps ? Icons.near_me : Icons.location_on,
+                        size: 12,
+                        color: const Color(0xFFD4C5A9),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _isUsingGps ? "當前位置" : "指定區域",
+                        style: const TextStyle(
+                          color: Color(0xFFD4C5A9),
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
                   ),
-                  if (_isCustomLoading)
+                  const SizedBox(height: 2),
+                  if (_isLoading)
                     const SizedBox(
                       width: 15,
                       height: 15,
@@ -358,20 +319,20 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                         color: Colors.white,
                       ),
                     )
-                  else if (_customWeather != null) ...[
+                  else if (_displayWeather != null) ...[
                     Text(
-                      _translateCity(_customWeather!.cityName),
+                      _translateCity(_displayWeather!.cityName),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        fontSize: 18,
                       ),
                     ),
                     Text(
-                      "${_customWeather!.temperature.round()}° ${_customWeather!.description}",
+                      "${_displayWeather!.temperature.round()}° ${_displayWeather!.description}",
                       style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 11,
+                        fontSize: 12,
                       ),
                     ),
                   ],

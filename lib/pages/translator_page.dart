@@ -29,11 +29,9 @@ class _TranslatorPageState extends State<TranslatorPage> {
     await flutterTts.setLanguage("ja-JP");
   }
 
-  // 自動翻譯邏輯 (使用 Google Translate API 免費端點)
   Future<void> _translateText() async {
     if (_zhController.text.isEmpty) return;
     setState(() => _isTranslating = true);
-
     try {
       final query = Uri.encodeComponent(_zhController.text);
       final url = Uri.parse(
@@ -43,7 +41,7 @@ class _TranslatorPageState extends State<TranslatorPage> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
-          _jpController.text = data[0][0][0]; // 填入翻譯結果
+          _jpController.text = data[0][0][0];
         });
       }
     } catch (e) {
@@ -54,23 +52,16 @@ class _TranslatorPageState extends State<TranslatorPage> {
   }
 
   void _addTranslation() async {
-    if (_zhController.text.isEmpty || _jpController.text.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("請填寫中文並完成翻譯")));
-      return;
-    }
-
+    if (_zhController.text.isEmpty) return;
     await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .collection('translations')
         .add({
           'zh': _zhController.text,
-          'jp': _jpController.text,
+          'jp': _jpController.text.isEmpty ? "待翻譯" : _jpController.text,
           'createdAt': FieldValue.serverTimestamp(),
         });
-
     _zhController.clear();
     _jpController.clear();
     if (mounted) Navigator.pop(context);
@@ -81,32 +72,33 @@ class _TranslatorPageState extends State<TranslatorPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text("新增翻譯"),
+          title: const Text("新增翻譯語句"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: _zhController,
-                decoration: const InputDecoration(
-                  labelText: "輸入中文",
-                  hintText: "例如：這個多少錢？",
-                ),
+                decoration: const InputDecoration(labelText: "中文 (必填)"),
               ),
               const SizedBox(height: 10),
-              if (_isTranslating)
-                const LinearProgressIndicator()
-              else
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    await _translateText();
-                    setDialogState(() {}); // 刷新 Dialog UI 以顯示結果
-                  },
-                  icon: const Icon(Icons.translate),
-                  label: const Text("點此自動翻譯成日文"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple[50],
-                  ),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await _translateText();
+                  setDialogState(() {});
+                },
+                icon: _isTranslating
+                    ? const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_awesome, size: 16),
+                label: const Text("自動翻譯"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9E8B6E).withAlpha(30),
+                  foregroundColor: const Color(0xFF9E8B6E),
                 ),
+              ),
               TextField(
                 controller: _jpController,
                 decoration: const InputDecoration(labelText: "日文結果"),
@@ -118,7 +110,14 @@ class _TranslatorPageState extends State<TranslatorPage> {
               onPressed: () => Navigator.pop(ctx),
               child: const Text("取消"),
             ),
-            ElevatedButton(onPressed: _addTranslation, child: const Text("儲存")),
+            ElevatedButton(
+              onPressed: _addTranslation,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9E8B6E),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("儲存"),
+            ),
           ],
         ),
       ),
@@ -129,15 +128,19 @@ class _TranslatorPageState extends State<TranslatorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('旅遊隨身翻譯'),
-        backgroundColor: Colors.purple,
+        title: const Text('旅遊翻譯'),
+        backgroundColor: const Color(0xFF9E8B6E),
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_comment),
-            onPressed: _showAddDialog,
-          ),
-        ],
+      ),
+      // --- 顯眼的新增按鈕 ---
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddDialog,
+        backgroundColor: const Color(0xFF9E8B6E),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text(
+          "新增翻譯",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -150,9 +153,15 @@ class _TranslatorPageState extends State<TranslatorPage> {
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
           final docs = snapshot.data!.docs;
-          if (docs.isEmpty) return const Center(child: Text("點擊右上角新增常用翻譯語句"));
-
+          if (docs.isEmpty)
+            return const Center(
+              child: Text(
+                "目前尚無翻譯，點擊下方新增",
+                style: TextStyle(color: Colors.grey),
+              ),
+            );
           return ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80),
             itemCount: docs.length,
             itemBuilder: (ctx, i) {
               final data = docs[i].data() as Map<String, dynamic>;
@@ -164,7 +173,7 @@ class _TranslatorPageState extends State<TranslatorPage> {
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
-                      color: Colors.purple,
+                      color: Color(0xFF9E8B6E),
                     ),
                   ),
                   subtitle: Text(data['zh']),
@@ -172,11 +181,17 @@ class _TranslatorPageState extends State<TranslatorPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.volume_up),
+                        icon: const Icon(
+                          Icons.volume_up,
+                          color: Color(0xFF9E8B6E),
+                        ),
                         onPressed: () => flutterTts.speak(data['jp']),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.grey,
+                        ),
                         onPressed: () => docs[i].reference.delete(),
                       ),
                     ],
