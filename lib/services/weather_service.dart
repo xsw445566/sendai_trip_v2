@@ -1,35 +1,36 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:geolocator/geolocator.dart';
-
 import '../config/api_keys.dart';
 import '../models/weather.dart';
 import 'location_service.dart';
+import 'package:geolocator/geolocator.dart';
 
 class WeatherService {
+  // 自動 GPS
   static Future<Weather?> fetchWeatherByLocation() async {
     try {
-      Position position = await LocationService.getCurrentPosition();
-
-      final uri = Uri.parse(
-        'https://api.openweathermap.org/data/2.5/weather'
-        '?lat=${position.latitude}'
-        '&lon=${position.longitude}'
-        '&appid=$weatherApiKey'
-        '&units=metric'
-        '&lang=zh_tw',
-      );
-
-      final response = await http.get(uri);
-
-      if (response.statusCode == 200) {
-        return Weather.fromJson(json.decode(response.body));
-      } else {
-        return null;
-      }
+      Position pos = await LocationService.getCurrentPosition();
+      final url =
+          'https://api.openweathermap.org/data/2.5/weather?lat=${pos.latitude}&lon=${pos.longitude}&appid=$weatherApiKey&units=metric&lang=zh_tw';
+      final res = await http.get(Uri.parse(url));
+      return res.statusCode == 200
+          ? Weather.fromJson(json.decode(res.body))
+          : null;
     } catch (e) {
-      debugPrint('WeatherService error: $e');
+      return null;
+    }
+  }
+
+  // 手動輸入城市
+  static Future<Weather?> fetchWeatherByCity(String city) async {
+    try {
+      final url =
+          'https://api.openweathermap.org/data/2.5/weather?q=$city&appid=$weatherApiKey&units=metric&lang=zh_tw';
+      final res = await http.get(Uri.parse(url));
+      return res.statusCode == 200
+          ? Weather.fromJson(json.decode(res.body))
+          : null;
+    } catch (e) {
       return null;
     }
   }
