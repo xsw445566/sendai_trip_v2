@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../models/activity.dart';
 import '../models/weather.dart';
 import '../services/weather_service.dart';
@@ -19,9 +18,9 @@ class ElegantItineraryPage extends StatefulWidget {
 }
 
 class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
-  Weather? _weather;
-  bool _isWeatherLoading = true;
-  String _currentCity = "自動定位";
+  Weather? _gpsWeather;
+  Weather? _customWeather;
+  bool _isLoading = true;
   final PageController _pageController = PageController();
   int _selectedDayIndex = 0;
   String _currentTime = '';
@@ -30,8 +29,7 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
   @override
   void initState() {
     super.initState();
-    _updateTime();
-    _loadWeather();
+    _initData();
     _clockTimer = Timer.periodic(
       const Duration(seconds: 1),
       (t) => _updateTime(),
@@ -45,58 +43,59 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     super.dispose();
   }
 
+  Future<void> _initData() async {
+    // 同時抓取 GPS 和 預設自訂城市 (仙台)
+    final results = await Future.wait([
+      WeatherService.fetchWeatherByLocation(),
+      WeatherService.fetchWeatherByCity("Sendai"),
+    ]);
+    if (mounted) {
+      setState(() {
+        _gpsWeather = results[0];
+        _customWeather = results[1];
+        _isLoading = false;
+      });
+      _updateTime();
+    }
+  }
+
   void _updateTime() {
-    final now = DateTime.now();
     if (!mounted) return;
+    // 如果有自訂城市，依照該城市時區顯示時間，否則顯示系統時間
+    DateTime now = DateTime.now().toUtc();
+    if (_customWeather != null) {
+      now = now.add(Duration(seconds: _customWeather!.timezone));
+    } else {
+      now = DateTime.now(); // 預設本地
+    }
+
     setState(() {
       _currentTime =
           "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
     });
   }
 
-  Future<void> _loadWeather({String? city}) async {
-    setState(() => _isWeatherLoading = true);
-    Weather? result;
-    if (city == null) {
-      result = await WeatherService.fetchWeatherByLocation();
-      _currentCity = result?.cityName ?? "未知位置";
-    } else {
-      result = await WeatherService.fetchWeatherByCity(city);
-      if (result != null) {
-        _currentCity = city;
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _weather = result;
-      _isWeatherLoading = false;
-    });
-  }
-
-  void _showCityDialog() {
+  void _changeCustomCity() {
     final TextEditingController cityC = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("切換城市"),
+        title: const Text("自訂區域天氣"),
         content: TextField(
           controller: cityC,
-          decoration: const InputDecoration(hintText: "例如: Sendai"),
+          decoration: const InputDecoration(hintText: "輸入城市名稱 (如: Tokyo)"),
         ),
         actions: [
-          TextButton(
-            onPressed: () {
-              _loadWeather();
-              Navigator.pop(ctx);
-            },
-            child: const Text("自動定位"),
-          ),
           ElevatedButton(
-            onPressed: () {
-              _loadWeather(city: cityC.text);
-              Navigator.pop(ctx);
+            onPressed: () async {
+              final w = await WeatherService.fetchWeatherByCity(cityC.text);
+              if (w != null && mounted) {
+                setState(() => _customWeather = w);
+                _updateTime();
+                Navigator.pop(ctx);
+              }
             },
-            child: const Text("確定"),
+            child: const Text("切換"),
           ),
         ],
       ),
@@ -108,39 +107,11 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // 星宇風格背景
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 400,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.network(
-                  'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg',
-                  fit: BoxFit.cover,
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black45,
-                        Colors.white.withAlpha(25),
-                        const Color(0xFFF5F5F5),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _buildBackground(),
           SafeArea(
             child: Column(
               children: [
-                _buildHeader(),
+                _buildDualWeatherHeader(),
                 const FlightCarousel(),
                 const SizedBox(height: 10),
                 _buildDaySelector(),
@@ -165,12 +136,44 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildBackground() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 400,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            'https://icrvb3jy.xinmedia.com/solomo/article/7/5/2/752e384b-d5f4-4d6e-b7ea-717d43c66cf2.jpeg',
+            fit: BoxFit.cover,
+          ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black54,
+                  Colors.white.withAlpha(20),
+                  const Color(0xFFF5F5F5),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDualWeatherHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // 左側：時間與 GPS 天氣
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -178,44 +181,57 @@ class _ElegantItineraryPageState extends State<ElegantItineraryPage> {
                 _currentTime,
                 style: const TextStyle(
                   fontSize: 42,
-                  fontWeight: FontWeight.w300,
+                  fontWeight: FontWeight.w200,
                   color: Colors.white,
                 ),
               ),
-              const Text(
-                '2026.01.16 - 01.20',
-                style: TextStyle(color: Colors.white70),
-              ),
+              if (_gpsWeather != null)
+                Row(
+                  children: [
+                    const Icon(Icons.near_me, size: 12, color: Colors.white70),
+                    const SizedBox(width: 4),
+                    Text(
+                      "${_gpsWeather!.temperature.round()}° ${_gpsWeather!.cityName}",
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
+          // 右側：自訂區域天氣
           GestureDetector(
-            onTap: _showCityDialog,
+            onTap: _changeCustomCity,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                if (_isWeatherLoading)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                else ...[
-                  const Icon(Icons.location_on, color: Colors.white, size: 18),
+                const Text(
+                  "自訂區域",
+                  style: TextStyle(color: Colors.white54, fontSize: 10),
+                ),
+                if (_customWeather != null) ...[
                   Text(
-                    _currentCity,
+                    _customWeather!.cityName,
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
+                      fontSize: 18,
                     ),
                   ),
                   Text(
-                    '${_weather?.temperature.round() ?? "--"}° ${_weather?.description ?? ""}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    "${_customWeather!.temperature.round()}° ${_customWeather!.description}",
+                    style: const TextStyle(
+                      color: Color(0xFFD4C5A9),
+                      fontSize: 12,
+                    ),
                   ),
-                ],
+                ] else
+                  const Text(
+                    "點擊設置",
+                    style: TextStyle(color: Colors.white, fontSize: 14),
+                  ),
               ],
             ),
           ),
@@ -294,7 +310,7 @@ class DayItineraryWidget extends StatelessWidget {
                 .toList();
             activities.sort((a, b) => a.time.compareTo(b.time));
             return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 120),
               itemCount: activities.length,
               itemBuilder: (ctx, index) =>
                   ActivityCard(activity: activities[index]),
@@ -303,7 +319,7 @@ class DayItineraryWidget extends StatelessWidget {
         ),
         Positioned(
           right: 20,
-          bottom: 85,
+          bottom: 90,
           child: FloatingActionButton(
             backgroundColor: const Color(0xFF9E8B6E),
             onPressed: () {
